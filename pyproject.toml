@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cs-kernel"
+version = "0.1.0"
+description = "Shared kernel of the <company>-cs customer-service operators: import package `cs` (frozen module path), per-company variance declared in the clone's manifest.toml."
+requires-python = ">=3.11"
+# Dependencies = the specimens' requirements.txt, unchanged.
+dependencies = [
+    "pydantic-settings>=2.2",
+    "firebase-admin>=6.5",
+    "websockets>=13",
+    "google-auth>=2.29",
+    "requests>=2.31",
+]
+
+[tool.setuptools.packages.find]
+include = ["cs*"]
