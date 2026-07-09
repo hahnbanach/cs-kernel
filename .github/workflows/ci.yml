@@ -1,0 +1,20 @@
+name: kernel-gates
+
+# The charter's CI gate (design brief §5.2): zero company literals in cs/,
+# boundary greps, clean-venv install, full --help tree, config + pack
+# semantics. The golden pack gate is env-driven and self-skips here
+# (clone material never enters this repo).
+on:
+  push:
+  pull_request:
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: semantic gates
+        run: bash tests/run.sh
