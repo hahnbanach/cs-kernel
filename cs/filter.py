@@ -1,0 +1,74 @@
+"""Turn the raw producer payload into a worklist: apply self-filter
+(operator's own accounts), suppression, dedup, and basic eligibility.
+
+leads        -> key = firebase uid (email resolved later, via Firebase SA)
+signups      -> key = business_id (email already in payload)
+cancellations-> key = business_id (email already in payload)
+"""
+from __future__ import annotations
+
+from .config import Settings
+from .state import State
+
+
+def _norm(s) -> str:
+    return (s or "").strip().lower()
+
+
+def _filter_business(rows, category, settings, state, dnc, seen_emails, out, skipped):
+    for b in rows:
+        bid = b.get("business_id")
+        email = _norm(b.get("email_address"))
+        if b.get("is_deleted"):
+            skipped.append({"category": category, "key": bid, "reason": "deleted"})
+            continue
+        if email in settings.self_email_set or b.get("owner") in settings.self_uid_set:
+            skipped.append({"category": category, "key": bid, "reason": "self"})
+            continue
+        if not email:
+            skipped.append({"category": category, "key": bid, "reason": "no_email"})
+            continue
+        if email in dnc:
+            skipped.append({"category": category, "key": bid, "reason": "suppressed"})
+            continue
+        if state.already_contacted(bid, category, settings.dedup_days):
+            skipped.append({"category": category, "key": bid, "reason": "dedup"})
+            continue
+        if email in seen_emails:
+            skipped.append({"category": category, "key": bid, "reason": "dup_in_batch"})
+            continue
+        out[category].append(b)
+        seen_emails.add(email)
+
+
+def build_worklist(payload: dict, settings: Settings, state: State) -> dict:
+    dnc = state.do_not_contact_set()
+    out = {"lead": [], "signup": [], "cancellation": []}
+    skipped: list[dict] = []
+    seen_emails: set[str] = set()
+
+    for l in payload.get("leads", []):
+        uid = l.get("uid")
+        if uid in settings.self_uid_set:
+            skipped.append({"category": "lead", "key": uid, "reason": "self"})
+            continue
+        if state.already_contacted(uid, "lead", settings.dedup_days):
+            skipped.append({"category": "lead", "key": uid, "reason": "dedup"})
+            continue
+        out["lead"].append(l)
+
+    _filter_business(
+        payload.get("signups", []), "signup", settings, state, dnc, seen_emails, out, skipped
+    )
+    _filter_business(
+        payload.get("cancellations", []),
+        "cancellation",
+        settings,
+        state,
+        dnc,
+        seen_emails,
+        out,
+        skipped,
+    )
+
+    return {"to_contact": out, "skipped": skipped}
