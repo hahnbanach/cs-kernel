@@ -1,0 +1,604 @@
+"""cs CLI — a CLI front-end to the operator mailbox's mrcall-desktop engine.
+
+The engine daemon (zylch-server@<uid> on the host) is the body: mail
+archive, entity memory, tasks, trained writing voice, draft/send. Claude
+Code is the brain. These verbs are thin transport:
+
+  plan       ingest + self-filter + suppression; who the producer suggests.
+  whoami     verify the engine session (account.who_am_i).
+  rpc        generic JSON-RPC call: cs rpc <method> ['{"json": "params"}'].
+  thread     all email threads exchanged with one address (both directions).
+  contacted  did the operator write to this address in the last N days? (dedup)
+  tasks      open tasks on the engine.
+  business   CRM lookup by email (adapter from manifest [crm]).
+  dossier    thread + contacted + tasks + CRM for one address, in one shot.
+  chat       one engine-chat turn (drafting surface; destructive tools
+             denied unless --allow'ed).
+
+Writing/sending NEVER happens here: contextual drafts are composed by the
+engine (memory + trained voice + threading) and reviewed before any send;
+only fixed-template campaign bulk uses the gated cs-SMTP/SMS paths.
+"""
+from __future__ import annotations
+
+import argparse
+import asyncio
+import json
+import os
+import sys
+from collections import Counter
+
+from . import config, crm, ingest, rpc
+from . import campaign as campaign_mod
+from . import filter as filt
+from . import manifest as manifest_mod
+from . import state as state_mod
+
+
+def _print_json(obj) -> None:
+    print(json.dumps(obj, ensure_ascii=False, indent=2, default=str))
+
+
+def _self_label(settings) -> str:
+    """The operator identity used in human-readable prints — ALWAYS derived
+    from Settings (manifest → env), never a literal."""
+    return settings.email_address or "the operator"
+
+
+# ---------------------------------------------------------------------- plan
+
+
+def cmd_plan(args) -> int:
+    settings = config.load()
+    st = state_mod.State(settings.db_path)
+    payload = ingest.fetch(settings, period=args.period)
+    wl = filt.build_worklist(payload, settings, st)
+    tc = wl["to_contact"]
+
+    print(f"{settings.prog_name} plan — window {payload.get('window')} — {payload.get('generated_at')}")
+    if payload.get("note"):
+        print(f"producer note: {payload['note']}")
+    print(
+        f"raw:        leads={len(payload.get('leads', []))} "
+        f"signups={len(payload.get('signups', []))} "
+        f"cancellations={len(payload.get('cancellations', []))}"
+    )
+    print(
+        f"candidates: leads={len(tc['lead'])} "
+        f"signups={len(tc['signup'])} "
+        f"cancellations={len(tc['cancellation'])}"
+    )
+    reasons = Counter((s["category"], s["reason"]) for s in wl["skipped"])
+    if reasons:
+        print("skipped:")
+        for (cat, reason), n in sorted(reasons.items()):
+            print(f"  {cat:13} {reason:11} x{n}")
+    if args.verbose:
+        print("\n-- candidates detail --")
+        for l in tc["lead"]:
+            print(
+                f"  lead    {l.get('uid_prefix')}  {l.get('country')}  "
+                f"pv={l.get('pageviews')}  hint={l.get('hint')}"
+            )
+        for b in tc["signup"]:
+            print(
+                f"  signup  {b.get('email_address')}  {b.get('country_alpha2')}  "
+                f"{b.get('template')}"
+            )
+        for b in tc["cancellation"]:
+            print(
+                f"  cancel  {b.get('email_address')}  {b.get('country_alpha2')}  "
+                f"{b.get('template')}"
+            )
+    print(
+        "\nNOTE: this is the producer worklist only. Per-candidate truth "
+        "(existing thread, memory, open tasks, recent contact) comes from "
+        "the engine: use `cs dossier <email>`."
+    )
+    return 0
+
+
+# ----------------------------------------------------------------- engine ro
+
+
+def cmd_whoami(args) -> int:
+    settings = config.load()
+    _print_json(rpc.call_sync(settings, "account.who_am_i"))
+    return 0
+
+
+def cmd_rpc(args) -> int:
+    settings = config.load()
+    params = json.loads(args.params) if args.params else {}
+    _print_json(rpc.call_sync(settings, args.method, params, timeout=args.timeout))
+    return 0
+
+
+def _search_threads(settings, query: str, limit: int) -> list[dict]:
+    res = rpc.call_sync(
+        settings, "emails.search", {"query": query, "folder": "all", "limit": limit}
+    )
+    return res.get("threads", []) if isinstance(res, dict) else []
+
+
+def _threads_for(settings, email: str, limit: int = 50) -> list[dict]:
+    """Threads exchanged with `email` in either direction, deduped."""
+    seen, out = set(), []
+    for q in (f"from:{email}", f"to:{email}", f"cc:{email}"):
+        for t in _search_threads(settings, q, limit):
+            tid = t.get("thread_id") or t.get("id")
+            if tid not in seen:
+                seen.add(tid)
+                out.append(t)
+    return out
+
+
+def cmd_thread(args) -> int:
+    settings = config.load()
+    threads = _threads_for(settings, args.email, args.limit)
+    if args.json:
+        _print_json(threads)
+        return 0
+    if not threads:
+        print(f"no email threads with {args.email}")
+        return 0
+    for t in threads:
+        print(
+            f"  {t.get('last_date') or t.get('date') or '?':25.25} "
+            f"{(t.get('subject') or '(no subject)'):60.60} "
+            f"msgs={t.get('message_count', '?')} thread_id={t.get('thread_id') or t.get('id')}"
+        )
+    return 0
+
+
+def cmd_contacted(args) -> int:
+    # DEDUP TRUTH = Gmail's own Sent folder (IMAP), NOT the engine. The engine's
+    # `emails.search folder:sent` drops a thread the moment the customer replies
+    # last (storage latest-sender bug) and can miss mail entirely — so it is
+    # blind to replies we sent by hand. Read Gmail directly. See cs/gmail_archive.py.
+    settings = config.load()
+    from . import gmail_archive
+
+    msgs = gmail_archive.sent_to(settings, args.email, days=args.days)
+    print(
+        f"{'YES' if msgs else 'no'} — {_self_label(settings)} wrote to {args.email} "
+        f"in the last {args.days} days ({len(msgs)} message(s)) [Gmail Sent, ground truth]"
+    )
+    for m in msgs:
+        print(f"  {m['date']}: {m['subject']}")
+    return 0 if msgs else 1
+
+
+def cmd_tasks(args) -> int:
+    settings = config.load()
+    res = rpc.call_sync(
+        settings,
+        "tasks.list",
+        {"include_completed": args.all, "limit": args.limit},
+        timeout=120,
+    )
+    if args.json:
+        _print_json(res)
+        return 0
+    rows = res if isinstance(res, list) else res.get("tasks", [])
+    for t in rows:
+        print(
+            f"  [{(t.get('urgency') or '?'):8.8}] {(t.get('contact_email') or t.get('contact_phone') or '?'):38.38} "
+            f"{(t.get('title') or t.get('summary') or '')[:70]}"
+        )
+    print(f"total: {len(rows)}")
+    return 0
+
+
+def cmd_business(args) -> int:
+    # CRM lookup through the port (cs/crm): the adapter is chosen by the
+    # manifest ([crm].adapter), never by an if-company switch. Never raises.
+    settings = config.load()
+    _print_json(crm.lookup(settings, args.email).as_dict())
+    return 0
+
+
+def _print_crm_section(settings, email: str) -> None:
+    # CRM is AUXILIARY intel — the port never raises (degraded lookups carry a
+    # note), and the verdict below never depends on it (CRM-agnostic verdict).
+    res = crm.lookup(settings, email)
+    print(f"\n-- CRM [{res.source}] ({len(res.rows)}) --")
+    for row in res.rows:
+        facts = "  ".join(f"{k}={row.facts.get(k, '')}" for k in res.render_hints)
+        print(f"  {row.id}  {row.label}  {facts}")
+    if res.note:
+        print(f"  ({res.note})")
+
+
+def cmd_dossier(args) -> int:
+    settings = config.load()
+    from . import gmail_archive
+
+    email = args.email
+    me = _self_label(settings)
+    print(f"=== dossier: {email} ===\n")
+
+    # --- Gmail correspondence = GROUND TRUTH. The engine search misses mail sent
+    # by hand and collapses replied-to threads out of folder:sent, so dedup must
+    # read Gmail itself, not the engine. See cs/gmail_archive.py. ---
+    corr = gmail_archive.correspondence(settings, email)
+    sent_us = [m for m in corr if m["direction"] == "sent"]
+    inbound = [m for m in corr if m["direction"] == "in"]
+    print(
+        f"-- Gmail correspondence ({len(corr)}): {len(sent_us)} sent by {me}, "
+        f"{len(inbound)} inbound [ground truth, drafts excluded] --"
+    )
+    for m in sorted(corr, key=lambda x: x.get("date") or "", reverse=True)[:12]:
+        tag = "SENT" if m["direction"] == "sent" else "IN  "
+        print(f"  [{tag}] {str(m.get('date') or '?'):31.31} {(m.get('subject') or '')[:46]}")
+    if len(corr) > 12:
+        print(f"  … {len(corr) - 12} older not shown")
+
+    recent = gmail_archive.sent_to(settings, email, days=args.dedup_days)
+    print(
+        f"\n-- contacted by {me} in last {args.dedup_days}d (Gmail Sent): "
+        f"{'YES — do not cold-contact' if recent else 'no'} --"
+    )
+    for m in recent:
+        print(f"  {m['date']}: {m['subject']}")
+
+    res = rpc.call_sync(settings, "tasks.list", {"limit": 500}, timeout=120)
+    rows = res if isinstance(res, list) else res.get("tasks", [])
+    mine = [t for t in rows if (t.get("contact_email") or "").lower() == email.lower()]
+    print(f"\n-- open engine tasks for this contact ({len(mine)}) --")
+    for t in mine:
+        print(f"  [{t.get('urgency')}] {(t.get('title') or t.get('summary') or '')[:80]}")
+
+    _print_crm_section(settings, email)
+
+    if recent:
+        verdict = f"STOP — {me} already wrote within dedup window (Gmail Sent)"
+    elif sent_us or inbound:
+        verdict = "REPLY IN THREAD — real history exists (not cold)"
+    else:
+        verdict = "cold contact — needs operator sign-off"
+    print(f"\nverdict: {verdict}")
+    return 0
+
+
+def cmd_chat(args) -> int:
+    settings = config.load()
+    allow = {t.strip() for t in (args.allow or "").split(",") if t.strip()}
+    out = asyncio.run(
+        rpc.chat(settings, args.message, allow_tools=allow, timeout=args.timeout)
+    )
+    res = out["result"] or {}
+    text = res.get("response") or res.get("text") or res
+    if isinstance(text, (dict, list)):
+        _print_json(text)
+    else:
+        print(text)
+    if out["approvals"]:
+        print("\n-- tool approvals --")
+        for a in out["approvals"]:
+            print(f"  {a['tool']}: {a['mode']}")
+    return 0
+
+
+# ----------------------------------------------------------------- campaign
+
+
+def cmd_campaign_list(args) -> int:
+    settings = config.load()
+    _print_json(campaign_mod.list_campaigns(settings))
+    return 0
+
+
+def cmd_campaign_pending(args) -> int:
+    settings = config.load()
+    _print_json(campaign_mod.pending(settings, name=args.name))
+    return 0
+
+
+def cmd_campaign_reconcile(args) -> int:
+    settings = config.load()
+    _print_json(campaign_mod.reconcile(settings, args.contact_id, commit=args.commit))
+    return 0
+
+
+def cmd_campaign_mark(args) -> int:
+    settings = config.load()
+    patch = json.loads(args.dossier) if args.dossier else None
+    _print_json(
+        campaign_mod.mark(
+            settings, args.contact_id, state=args.state, dossier_patch=patch, commit=args.commit
+        )
+    )
+    return 0
+
+
+def cmd_campaign_send_draft(args) -> int:
+    settings = config.load()
+    _print_json(campaign_mod.send_draft(settings, args.contact_id, commit=args.commit))
+    return 0
+
+
+def cmd_campaign_queue_draft(args) -> int:
+    settings = config.load()
+    _print_json(campaign_mod.queue_draft(settings, args.contact_id, commit=args.commit))
+    return 0
+
+
+def cmd_campaign_send_reminder(args) -> int:
+    settings = config.load()
+    _print_json(campaign_mod.send_reminder(settings, args.contact_id, commit=args.commit))
+    return 0
+
+
+def cmd_campaign_send_sms(args) -> int:
+    settings = config.load()
+    _print_json(campaign_mod.send_sms(settings, args.contact_id, commit=args.commit))
+    return 0
+
+
+def cmd_campaign_packs(args) -> int:
+    # Read-only pack discovery — the "have we ever done something like this?"
+    # verb. Precedent lives in the clone's campaigns/ directory.
+    from . import campaign_pack
+
+    try:
+        packs = campaign_pack.list_packs()
+    except campaign_pack.PackError as e:
+        print(f"pack error: {e}", file=sys.stderr)
+        return 1
+    if args.json:
+        _print_json([p.summary() for p in packs])
+        return 0
+    if not packs:
+        print("no campaign packs (campaigns/<name>/campaign.toml). "
+              "Past-campaign precedent lives there — see cs/campaign_pack.py.")
+        return 0
+    for p in packs:
+        print(f"  {p.name:34.34} {p.kind:15.15} {p.status:8.8} "
+              f"{(p.dates or ''):18.18} {p.description}")
+    return 0
+
+
+def cmd_ask(args) -> int:
+    # Read-only query to the engine's PROCESSED state — the engine ingests
+    # every 5 min and maintains memory + tasks + handled-state. Use THIS to
+    # learn "what did the client write / what have we already replied / is it
+    # handled", NOT a raw emails.list_by_thread re-parse (a flat thread can't
+    # see an out-of-band reply, a closed task, or what memory marks handled).
+    # allow_tools empty → structurally read-only (cannot send), composes nothing.
+    settings = config.load()
+    out = asyncio.run(rpc.chat(settings, args.question, allow_tools=set(), timeout=args.timeout))
+    res = out["result"] or {}
+    text = res.get("response") or res.get("text") or res
+    _print_json(text) if isinstance(text, (dict, list)) else print(text)
+    return 0
+
+
+def cmd_draft_reply(args) -> int:
+    # Like `chat` but with NO `--allow` option: allow_tools is hardcoded empty,
+    # so the engine denies send_draft whatever the message says. Structurally
+    # incapable of sending — this is the verb the headless operator may run.
+    settings = config.load()
+    out = asyncio.run(rpc.chat(settings, args.message, allow_tools=set(), timeout=args.timeout))
+    res = out["result"] or {}
+    text = res.get("response") or res.get("text") or res
+    if isinstance(text, (dict, list)):
+        _print_json(text)
+    else:
+        print(text)
+    return 0
+
+
+def cmd_review(args) -> int:
+    settings = config.load()
+    from . import review as review_mod
+
+    d = review_mod.gather(settings)
+    _print_json(d) if args.json else print(review_mod.render(d))
+    return 0
+
+
+def cmd_drive(args) -> int:
+    # Read-only Google Drive via the cs service-account (Shared Drives shared
+    # with the SA). Delegates to cs.drive.main so this verb and the
+    # `python -m cs.drive` self-test share one implementation. Lazy import:
+    # google-auth / requests load only when the verb is actually used.
+    from . import drive as drive_mod
+
+    return drive_mod.main(args.drive_args)
+
+
+def cmd_accounts(args) -> int:
+    # List the configured multi-account registry (name -> uid) for THIS project.
+    settings = config.load()
+    amap = settings.account_map
+    if not amap:
+        print("no accounts configured. Set CS_ACCOUNTS in this project's cs env, e.g.\n"
+              "  CS_ACCOUNTS=<name>:<uid>,<name2>:<uid2>")
+        return 0
+    default = settings.engine_owner_uid
+    for name, uid in amap.items():
+        print(f"  {name:12} {uid}{'  (default)' if uid == default else ''}")
+    return 0
+
+
+# --------------------------------------------------------------------- main
+
+
+def main(argv=None) -> int:
+    try:
+        settings = config.load()
+    except manifest_mod.ManifestError as e:
+        # Loud startup error (bad manifest / unknown adapter) — per design,
+        # this fails EVERY verb including --help until the manifest is fixed.
+        print(f"manifest error: {e}", file=sys.stderr)
+        return 2
+
+    p = argparse.ArgumentParser(prog=settings.prog_name or "cs")
+    p.add_argument(
+        "--account",
+        help="target a configured account by name (CS_ACCOUNTS); default = CS_ENGINE_OWNER_UID. "
+        "This project's accounts only — never another project's.",
+    )
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    pp = sub.add_parser("plan", help="producer worklist: who to consider today")
+    pp.add_argument("--period", default="7d")
+    pp.add_argument("--verbose", "-v", action="store_true")
+    pp.set_defaults(func=cmd_plan)
+
+    pw = sub.add_parser("whoami", help="verify the engine session")
+    pw.set_defaults(func=cmd_whoami)
+
+    pr = sub.add_parser("rpc", help="generic JSON-RPC call to the engine")
+    pr.add_argument("method")
+    pr.add_argument("params", nargs="?", help="JSON object of params")
+    pr.add_argument("--timeout", type=float, default=60)
+    pr.set_defaults(func=cmd_rpc)
+
+    pt = sub.add_parser("thread", help="email threads with an address (both directions)")
+    pt.add_argument("email")
+    pt.add_argument("--limit", type=int, default=50)
+    pt.add_argument("--json", action="store_true")
+    pt.set_defaults(func=cmd_thread)
+
+    pc = sub.add_parser("contacted", help="did the operator write to this address recently?")
+    pc.add_argument("email")
+    pc.add_argument("--days", type=int, default=30)
+    pc.set_defaults(func=cmd_contacted)
+
+    pk = sub.add_parser("tasks", help="engine tasks")
+    pk.add_argument("--all", action="store_true", help="include completed")
+    pk.add_argument("--limit", type=int, default=200)
+    pk.add_argument("--json", action="store_true")
+    pk.set_defaults(func=cmd_tasks)
+
+    pb = sub.add_parser("business", help="CRM lookup by email (adapter from manifest [crm])")
+    pb.add_argument("email")
+    pb.set_defaults(func=cmd_business)
+
+    pd = sub.add_parser("dossier", help="thread+contacted+tasks+CRM for one address")
+    pd.add_argument("email")
+    pd.add_argument("--dedup-days", type=int, default=30)
+    pd.set_defaults(func=cmd_dossier)
+
+    ph = sub.add_parser(
+        "chat",
+        help="one engine-chat turn (drafting surface). Destructive tools are "
+        "DENIED unless explicitly --allow'ed.",
+    )
+    ph.add_argument("message")
+    ph.add_argument(
+        "--allow",
+        help="comma-separated tool names to approve (e.g. send_draft) — "
+        "use only after operator review",
+    )
+    ph.add_argument("--timeout", type=float, default=600)
+    ph.set_defaults(func=cmd_chat)
+
+    pas = sub.add_parser(
+        "ask",
+        help="read-only query to the engine's processed state (memory + tasks + "
+        "handled-state). Use this to learn what's handled — never re-derive from raw threads.",
+    )
+    pas.add_argument("question")
+    pas.add_argument("--timeout", type=float, default=600)
+    pas.set_defaults(func=cmd_ask)
+
+    pdr = sub.add_parser(
+        "draft-reply",
+        help="compose a reply via the engine as a DRAFT only — never sends (no --allow). "
+        "The headless-safe reply path.",
+    )
+    pdr.add_argument("message")
+    pdr.add_argument("--timeout", type=float, default=600)
+    pdr.set_defaults(func=cmd_draft_reply)
+
+    prv = sub.add_parser(
+        "review",
+        help="operator digest: drafts waiting + open tasks + campaign flags + last tick (read-only)",
+    )
+    prv.add_argument("--json", action="store_true")
+    prv.set_defaults(func=cmd_review)
+
+    pdrv = sub.add_parser(
+        "drive",
+        help="read-only Google Drive (Shared Drives via the cs service-account): "
+        "`drive ls [driveOrFolderId]` | `drive cat <fileId>`",
+    )
+    pdrv.add_argument("drive_args", nargs=argparse.REMAINDER, help="ls [id] | cat <fileId>")
+    pdrv.set_defaults(func=cmd_drive)
+
+    pac = sub.add_parser("accounts", help="list configured multi-account names (CS_ACCOUNTS)")
+    pac.set_defaults(func=cmd_accounts)
+
+    pcm = sub.add_parser("campaign", help="campaign follow-up verbs")
+    csub = pcm.add_subparsers(dest="caction", required=True)
+    cml = csub.add_parser("list", help="campaigns + per-state counts")
+    cml.set_defaults(func=cmd_campaign_list)
+    cmp_ = csub.add_parser("pending", help="per-campaign worklist (data only, sends nothing)")
+    cmp_.add_argument("--name", help="restrict to one campaign name")
+    cmp_.set_defaults(func=cmd_campaign_pending)
+    cmr = csub.add_parser(
+        "reconcile", help="mark an already-sent composed-draft contact 'sent' (Sent-archive dedup)"
+    )
+    cmr.add_argument("contact_id")
+    cmr.add_argument("--commit", action="store_true", help="apply (default: dry-run)")
+    cmr.set_defaults(func=cmd_campaign_reconcile)
+    cmm = csub.add_parser("mark", help="set state / merge dossier keys on a contact")
+    cmm.add_argument("contact_id")
+    cmm.add_argument("--state", help=f"one of {sorted(['drafted','approved','sent','replied','bounced','skipped'])}")
+    cmm.add_argument("--dossier", help="JSON dict merged into the contact dossier")
+    cmm.add_argument("--commit", action="store_true", help="apply (default: dry-run)")
+    cmm.set_defaults(func=cmd_campaign_mark)
+    cmd_ = csub.add_parser(
+        "send-draft",
+        help="composed-draft outreach: CS_TRIAGE_MODE=draft → Gmail Drafts, =send → cs-SMTP; dedup-first",
+    )
+    cmd_.add_argument("contact_id")
+    cmd_.add_argument("--commit", action="store_true", help="apply (default: dry-run)")
+    cmd_.set_defaults(func=cmd_campaign_send_draft)
+    cmq = csub.add_parser(
+        "queue-draft",
+        help="composed-draft outreach → the operator's Gmail Drafts ONLY (never sends); dedup-first",
+    )
+    cmq.add_argument("contact_id")
+    cmq.add_argument("--commit", action="store_true", help="apply (default: dry-run)")
+    cmq.set_defaults(func=cmd_campaign_queue_draft)
+    csr = csub.add_parser(
+        "send-reminder",
+        help="fixed-template reminder from the campaign's PACK (campaigns/<name>/); "
+        "stamp-before-send; window/cap/reply/pause/rate gated",
+    )
+    csr.add_argument("contact_id")
+    csr.add_argument("--commit", action="store_true", help="apply (default: dry-run)")
+    csr.set_defaults(func=cmd_campaign_send_reminder)
+    css = csub.add_parser(
+        "send-sms",
+        help="fixed-template SMS from the campaign's PACK via the [sms] proxy; "
+        "stamp-before-send; same gates",
+    )
+    css.add_argument("contact_id")
+    css.add_argument("--commit", action="store_true", help="apply (default: dry-run)")
+    css.set_defaults(func=cmd_campaign_send_sms)
+    cpk = csub.add_parser(
+        "packs",
+        help="list campaign packs (campaigns/<name>/) — reusable precedent, read-only",
+    )
+    cpk.add_argument("--json", action="store_true")
+    cpk.set_defaults(func=cmd_campaign_packs)
+
+    args = p.parse_args(argv)
+    if getattr(args, "account", None):
+        amap = settings.account_map
+        uid = amap.get(args.account)
+        if not uid:
+            print(f"unknown --account '{args.account}'. Configured: "
+                  f"{sorted(amap) or '(none — set CS_ACCOUNTS)'}", file=sys.stderr)
+            return 2
+        os.environ["CS_ENGINE_OWNER_UID"] = uid  # config.load() reads env first
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
