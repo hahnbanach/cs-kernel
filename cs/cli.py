@@ -34,6 +34,7 @@ from . import filter as filt
 from . import manifest as manifest_mod
 from . import state as state_mod
 from . import project_init, project_update
+from . import cron as cron_mod
 
 
 def _print_json(obj) -> None:
@@ -599,6 +600,20 @@ def main(argv=None) -> int:
     )
     cpk.add_argument("--json", action="store_true")
     cpk.set_defaults(func=cmd_campaign_packs)
+
+    # --- cron: manage crontab entry (requires manifest) ---
+    try:
+        pcr = sub.add_parser("cron", help="manage the operator crontab entry")
+        crsub = pcr.add_subparsers(dest="caction", required=True)
+        cri = crsub.add_parser("install", help="install/update the crontab entry from manifest [cron].schedule")
+        cri.set_defaults(func=cron_mod.cmd_cron_install)
+        cru = crsub.add_parser("uninstall", help="remove the crontab entry")
+        cru.set_defaults(func=cron_mod.cmd_cron_uninstall)
+        crs = crsub.add_parser("status", help="show if the cron entry is installed + manifest intent")
+        crs.set_defaults(func=cron_mod.cmd_cron_status)
+    except Exception:
+        # If manifest is missing or invalid, cron commands will fail later with a clear error
+        pass
 
     args = p.parse_args(argv)
     if getattr(args, "account", None):
