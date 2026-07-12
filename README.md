@@ -1,199 +1,201 @@
 # cs-kernel
 
-**The shared engine of company-scoped customer-service operators.**
+**Shared CLI + operator skeleton for company-scoped customer-service bots.**
 
-One pip-installable package (`import cs`). Each company gets a thin clone
-(`mrcall-cs`, `124-cs`, yours) that holds only a `manifest.toml` and prose —
-never a fork of the code. Upgrades are a pin bump, not a cherry-pick.
+Install once, run `cs init`, answer a few questions, get a ready-to-run
+`<your-company>-cs` repo. All companies share the same engine code; only
+configuration and prose differ. No forking the core.
 
-```text
-pip install "cs-kernel @ git+https://github.com/hahnbanach/cs-kernel@v0.2.0"
-python -m cs init          # interactive: builds your <slug>-cs/ clone
-cd <slug>-cs && pip install -r requirements.txt
-```
-
----
-
-## Why this exists
-
-Support mail is body work (sync, memory, voice, drafts) plus brain work
-(triage, campaigns, policy). The **body** is an engine daemon per mailbox.
-The **brain** is this CLI + LLM skills.
-
-If every company forks the brain, you get drift: one clone hardens Gmail-Sent
-dedup, another still trusts a broken search; one renames a path, permissions
-silently die. **cs-kernel is the anti-fork:** shared code, declared variance.
-
-| Lives in the kernel | Lives in the company clone |
-|---|---|
-| CLI verbs, auth, RPC, Gmail IMAP | `manifest.toml` (identity, knobs, adapters) |
-| Campaign runner + pack loaders | `company/*.md` skill prose |
-| CRM / producer **ports** | Campaign packs under `campaigns/` |
-| Draft-only safety gates | Secrets in `~/.<slug>-cs/.env` |
-| `cs init` / `cs update` templates | Customer dossiers, local history |
-
-Voice, signature, and product policy stay in the engine profile (`USER_NOTES`)
-— outside every git repo.
-
----
-
-## Quick start — new company
-
-**1. Install the kernel** (SSH or HTTPS):
+You need a running **[mrcall-desktop](https://github.com/hahnbanach/mrcall-desktop)**
+engine profile for the mailbox you want to operate (sync, memory, drafts,
+send tools). This package is the thin brain in front of that body — not a
+standalone mail server.
 
 ```bash
-pip install "cs-kernel @ git+ssh://git@github.com/hahnbanach/cs-kernel@v0.2.0"
-# or
+pip install "cs-kernel @ git+https://github.com/hahnbanach/cs-kernel@v0.2.0"
+python -m cs init
+```
+
+---
+
+## What you get
+
+| Piece | Role |
+|---|---|
+| **mrcall-desktop engine** (separate product) | Per-mailbox daemon: Gmail sync, entity memory, writing voice, draft/send |
+| **cs-kernel** (this package) | CLI verbs, safety gates, campaign runner, `init` / `update` |
+| **Your clone** (e.g. `acme-cs/`) | `manifest.toml`, skills prose, campaign packs, secrets path |
+
+Voice, signature, and product policy live in the engine profile
+(`USER_NOTES`), not in git.
+
+---
+
+## Prerequisites
+
+Before `cs init` is useful you need:
+
+1. **Python 3.11+**
+2. A **mrcall-desktop** engine profile for your operator mailbox  
+   (Firebase uid, WebSocket host, service-account access as required by your deploy)
+3. **Mailbox credentials** the operator will use (IMAP/SMTP — typically Gmail)
+4. Optional: CRM / lead producer backends if you enable those adapters
+
+If you only install the package without an engine, `cs init` still creates the
+repo, but live verbs (`whoami`, `dossier`, `draft-reply`, …) will not work
+until the engine is up and secrets are filled.
+
+---
+
+## Example: ACME Corp
+
+Suppose ACME wants an operator on `support@acme.example`.
+
+### 1. Install
+
+```bash
 pip install "cs-kernel @ git+https://github.com/hahnbanach/cs-kernel@v0.2.0"
 ```
 
-**2. Generate a clone** (interactive prompts: name, mailbox, engine uid, CRM…):
+### 2. Create the clone
 
 ```bash
 python -m cs init
 ```
 
-This creates `<slug>-cs/` with:
+You will be asked roughly:
 
-- rendered `manifest.toml`, `.claude/` skills & commands, `bin/`, docs skeleton  
-- `template-manifest.json` (checksums for later updates)  
-- `git init` already run  
-
-**3. Secrets** — copy `.env.example` → `~/.<slug>-cs/.env` and fill:
-
-- `EMAIL_PASSWORD`, `FIREBASE_WEB_API_KEY`  
-- `CS_ACCOUNTS` (real uids)  
-- adapter-specific keys (e.g. Shopify) if you selected them  
-
-**4. Install the pin inside the clone and smoke-test:**
-
-```bash
-cd <slug>-cs
-python -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/python -m cs whoami
-```
-
-**5. Later, pull template / kernel improvements:**
-
-```bash
-# bump [repo].kernel_version in manifest.toml if needed, then:
-.venv/bin/pip install -r requirements.txt   # re-pin package
-python -m cs update                         # re-apply skill/template files
-```
-
-`cs update` overwrites files you never touched; if you edited a skill and the
-template also changed, it shows a diff and asks.
-
----
-
-## What the CLI does
-
-Run from a clone root (where `manifest.toml` lives):
-
-```bash
-.venv/bin/python -m cs <verb>
-```
-
-| Verb | Role |
+| Prompt | ACME example |
 |---|---|
-| `plan` | Outreach worklist from the producer adapter |
-| `whoami` / `rpc` | Engine session + raw JSON-RPC |
-| `thread` / `contacted` / `dossier` | History + **Gmail Sent** dedup truth |
-| `tasks` / `business` | Engine tasks + CRM port |
-| `ask` / `draft-reply` | Read-only / draft-only chat (cannot send) |
-| `campaign …` | List, pending, queue-draft, pack senders… |
-| `drive` | Read-only Drive (scope from manifest) |
-| `init` / `update` | Clone lifecycle (no manifest required for `init`) |
+| Company name | `ACME Corp` |
+| Display / From name | `ACME` |
+| Slug (state dir `~/.<slug>-cs`) | `acme` |
+| Program name | `acme-cs` |
+| Operator email | `support@acme.example` |
+| IMAP / SMTP host & ports | Gmail defaults, or yours |
+| Engine WebSocket URL | your mrcall-desktop front door |
+| Engine owner UID | Firebase uid of the support profile |
+| Default account + UID | `support` → that same uid |
+| Extra accounts (optional) | e.g. founder mailbox for read-only sweeps |
+| CRM adapter | `none` / `starchat` / `shopify` |
+| Producer adapter | `none` or a worklist producer |
+| Drive scope, SMS, cron schedule | as needed |
+| Destination directory | `acme-cs` (default) |
 
-**Sending** is deliberately hard: headless/cron stays draft-only; contextual
-send goes through the engine approval gate; fixed-template bulk uses gated
-SMTP/SMS with stamp-before-send, rate caps, and pause files.
+Confirm the summary → the tool writes **`acme-cs/`**.
 
----
-
-## Architecture (one picture)
+### 3. What lands on disk
 
 ```text
-┌──────────────────── company clone ────────────────────┐
-│  manifest.toml   company/*.md   campaigns/   docs/    │
-│  .claude/skills  bin/cs_operator_cron.sh              │
-└───────────────────────────┬───────────────────────────┘
-                            │ pip pin @vX.Y.Z
-┌───────────────────────────▼───────────────────────────┐
-│  cs-kernel  (this repo)  import package: cs             │
-│  config · rpc · campaign · gmail_archive · crm · …    │
-│  templates/project  →  cs init / cs update              │
-└───────────────────────────┬───────────────────────────┘
-                            │ WebSocket + Firebase
-┌───────────────────────────▼───────────────────────────┐
-│  mrcall-desktop engine (per-mailbox daemon)             │
-│  mail sync · entity memory · voice · draft/send tools   │
-└───────────────────────────────────────────────────────┘
+acme-cs/
+├── manifest.toml              # all non-secret company variance
+├── requirements.txt           # pins this kernel tag
+├── .env.example               # which secret keys to set
+├── template-manifest.json     # checksums for `cs update`
+├── .claude/skills/            # operator skills (incl. /customer)
+├── .claude/commands/          # interactive commands
+├── company/                   # prose slots you edit (domain examples…)
+├── campaigns/                 # optional campaign packs
+├── docs/                      # architecture stub + customers/
+└── bin/cs_operator_cron.sh    # draft-only headless tick wrapper
 ```
 
-**Adapters** (ports, not `if company ==`):
-
-- **CRM** — `starchat` | `shopify` | `none`  
-- **Producer** — `mrcall-tracking` | `none`  
-
-Unknown adapter names fail loud at config load.
-
----
-
-## Safety (non-negotiable)
-
-These are kernel **invariants**, not manifest knobs:
-
-1. Never cold-mail without a dossier; never re-contact inside the dedup window.  
-2. **Gmail Sent/All Mail** is dedup ground truth — not the engine archive.  
-3. Headless operator is **draft-only** (config + permission deny list).  
-4. Module path stays `python -m cs` forever (permission strings depend on it).  
-5. No company literals in `cs/` — identity comes only from Settings/manifest.  
-6. `~/.<slug>-cs/CS_PAUSE` kills ticks instantly.
-
----
-
-## Versioning & collaudo
-
-- Tags only: `v0.MINOR.PATCH` (see [CHANGELOG.md](CHANGELOG.md)).  
-- Clones pin tags in `requirements.txt`, never branches.  
-- Every change is meant to preserve  
-  `kernel + manifest(company) ≡ that company's operator`  
-  on CLI help, permissions, and live read-only verbs.
+### 4. Secrets (not in the repo)
 
 ```bash
-# develop against a local checkout
-pip install -e /path/to/cs-kernel
+mkdir -p ~/.acme-cs
+cp acme-cs/.env.example ~/.acme-cs/.env
+# edit ~/.acme-cs/.env — EMAIL_PASSWORD, FIREBASE_WEB_API_KEY,
+# CS_ACCOUNTS=support:<uid>, … and adapter keys if any
+```
+
+### 5. Install the pin inside the clone and smoke-test
+
+```bash
+cd acme-cs
+python -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/python -m cs whoami    # needs engine + secrets
+```
+
+### 6. Day-to-day (what ACME can do)
+
+From `acme-cs/` with the venv active:
+
+| Command | Purpose |
+|---|---|
+| `cs whoami` | Verify engine session |
+| `cs plan` | Worklist from the producer (if configured) |
+| `cs dossier alice@client.com` | Thread + Gmail-Sent contact check + tasks + CRM |
+| `cs ask "…"` | Read-only question against engine memory |
+| `cs draft-reply "…"` | Compose a **draft only** (structurally cannot send) |
+| `cs campaign list` / `pending` / `queue-draft` | Advance campaigns as drafts |
+| `cs drive ls` / `search` / `cat` | Read-only Drive (scoped in the manifest) |
+| `cs update` | Re-apply newer kernel templates when you upgrade |
+
+**Sending mail** is gated on purpose:
+
+- Default mode is **draft**: prepare, review (Gmail Drafts / desktop), then send.  
+- Headless/cron stays draft-only via permissions.  
+- Contextual send uses the engine’s approval gate when a human enables it.  
+- Fixed-template bulk (campaign packs) uses gated SMTP/SMS with rate limits,
+  pause file, and Gmail-Sent dedup.
+
+Optional autonomy later is a deliberate config + permission change — not the
+default.
+
+### 7. Upgrade later
+
+```bash
+# bump kernel pin in requirements.txt / manifest [repo].kernel_version
+.venv/bin/pip install -r requirements.txt
+python -m cs update    # merge template changes; asks if you edited files
 ```
 
 ---
 
-## Repo layout
+## Why not fork?
 
-```text
-cs/
-  cli.py              verbs
-  project_init.py     cs init
-  project_update.py   cs update
-  templates/project/  Jinja skeleton for new clones
-  campaign*.py        lifecycles + packs
-  crm/  ingest/       adapter ports
-  gmail_*.py          Sent/drafts IMAP
-  …
-tests/                semantic gates + golden
-CHANGELOG.md
-CLAUDE.md             operator charter for agents working on the kernel
-```
+If every company copies the whole operator, one hardens Gmail-Sent dedup and
+another keeps a broken search. **cs-kernel is the shared core**; the clone
+only holds declared variance (`manifest.toml` + prose + packs).
+
+| Kernel (this repo) | Company clone |
+|---|---|
+| CLI, auth, RPC, IMAP dedup | `manifest.toml` |
+| Campaign runner | `company/*.md`, `campaigns/` |
+| CRM / producer **ports** | Secrets under `~/.<slug>-cs/` |
+| `init` / `update` templates | Customer notes under `docs/customers/` |
+
+---
+
+## Safety (built in)
+
+Not knobs you can “turn off by mistake” in the manifest:
+
+1. No cold outreach without a dossier; respect the dedup window.  
+2. **Gmail Sent / All Mail** is contact ground truth (not the engine archive alone).  
+3. Headless path is **draft-only**.  
+4. Module path stays `python -m cs` (permission strings depend on it).  
+5. No hard-coded company brands in kernel code — identity comes from Settings.  
+6. `~/.<slug>-cs/CS_PAUSE` stops automated ticks immediately.
+
+---
+
+## Versioning
+
+- Install **tags only**: `@v0.2.0`, not a floating branch.  
+- See [CHANGELOG.md](CHANGELOG.md).  
+- Develop with `pip install -e /path/to/cs-kernel` against a local checkout.
 
 ---
 
 ## License & status
 
-Private product surface made public as reusable infrastructure.  
-Use at your own risk; the operators that ship on this kernel still require a
-running engine, credentials, and human review in draft mode.
+Public infrastructure for operators that sit in front of **mrcall-desktop**.
+You still need engine access, credentials, and human review in draft mode.
 
-**Current release:** `v0.2.0` — includes `cs init` / `cs update`.
+**Current release:** `v0.2.0`
 
 ```bash
 pip install "cs-kernel @ git+https://github.com/hahnbanach/cs-kernel@v0.2.0"
