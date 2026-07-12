@@ -1,0 +1,40 @@
+# campaigns/ — campaign packs
+
+A **pack** is a campaign's reusable intelligence (copy, timing, playbook,
+gotchas) saved as a directory so that months later "abbiamo mai fatto una cosa
+simile?" is answered by `cs campaign packs`, and re-running one is copy-and-edit
+— no new one-off script, no dedicated cron. **A pack is DATA + templates + prose
+in this clone; the runner is kernel code** (`cs/campaign.py` `send_reminder` /
+`send_sms`, loaded by `cs/campaign_pack.py`). This directory is empty on a fresh
+clone and grows with use.
+
+Layout (design brief §5.1b):
+
+```
+campaigns/<pack-name>/
+├── campaign.toml      # [pack] kind (fixed-template | composed-draft) /
+│                      #        description (what the discovery search reads) /
+│                      #        campaign (the engine campaign name) / status
+│                      #        (active | done) / dates / confirm_question;
+│                      #        [windows] optional overrides of [knobs]
+│                      #        (reminder_after_hour, sms_hour, reminder_max)
+├── mail_first.md      # first line `Subject: …`, blank line, then a markdown
+├── mail_reminder.md   # body with {name} {company} … placeholders filled from
+│                      # the contact row, rendered via send_mail's md→plain+html
+├── sms.txt            # SMS text, same {placeholders}
+├── builders.py        # OPTIONAL: build(row) / build_reminder(row) → (subject,
+│                      # plain, html) for rich hand-built HTML (tel: links, dial
+│                      # codes). Takes precedence over the templates.
+├── playbook.md        # how it ran, the gotchas, the ground truth
+└── legacy/            # OPTIONAL superseded one-off code, kept for reference,
+                       # NEVER imported (the kernel runner supersedes it)
+```
+
+Gates (all kernel-enforced, unchanged): stamp-before-send, `RATE_CAP`,
+`CS_PAUSE`, Sent-archive dedup first. A fixed-template action whose campaign has
+**no pack** is refused loudly — the kernel never invents copy.
+
+To reuse a past campaign for new numbers/dates:
+`cp -r campaigns/<old> campaigns/<new>` → edit `campaign.toml` + templates →
+seed the engine campaign + contacts → the general operator runs it through the
+kernel runner.

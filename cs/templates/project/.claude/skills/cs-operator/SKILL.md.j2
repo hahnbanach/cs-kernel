@@ -1,0 +1,143 @@
+---
+name: cs-operator
+description: mrcall-cs general operator bootstrap (headless, cron-driven). Identity is ALWAYS {{ email_address }}. Honours the CS_PAUSE kill-switch, verifies the engine session, then runs /triage-support-mail and /campaign-tick in order and stops. Safe to run as a no-op; nothing is sent autonomously while CS_TRIAGE_MODE=draft; never self-authorizes anything beyond the two sub-skills.
+---
+
+# mrcall-cs — General Operator Bootstrap
+
+The recurring entrypoint a headless cron runs as `claude -p "/cs-operator"`.
+Your only job is to run the day's recurring jobs **in order** and **stop**.
+You are the brain; the {{ email_address }} mrcall-desktop engine is the body. This
+skill is thin orchestration: it decides whether to run, runs the
+sub-skills, reports, and exits.
+
+Execute the steps below **silently** (tool calls fine, narration not).
+The only user-visible text is the final report in step 6. If a step
+emits a STOP, do exactly that — STOP, after printing the stated line. Do
+**not** improvise recovery, do not act blind, do not do anything the two
+sub-skills don't already do.
+
+All commands run from the repo root with `.venv/bin/python -m cs …`.
+
+## 0. The invariant (state it, then hold to it the whole run)
+
+- **Identity is ALWAYS `{{ email_address }}`.** Every read, draft, reply
+  acts as {{ email_address }}. You never assume another identity.
+- **No customer is contacted except through the sub-skills below.** This
+  bootstrap itself sends nothing, drafts nothing, marks nothing. It only
+  decides-to-run and delegates.
+- **Nothing is sent autonomously while `CS_TRIAGE_MODE=draft`** (the
+default). Free-form replies become engine drafts for Mario to review;
+the sub-skills enforce this, you do not override it.
+- **You do not self-authorize the out-of-scope actions in step 6.**
+
+## 1. Kill-switch — `~/.mrcall-cs/CS_PAUSE`
+
+Double-check the global kill-switch (the cron wrapper checks it too; you
+re-check so an interactive or wrapper-bypassing run still honours it):
+
+```bash
+test -f ~/.mrcall-cs/CS_PAUSE && echo PAUSED || echo active
+```
+
+If it prints `PAUSED`: print exactly one line —
+`cs-operator: paused (CS_PAUSE present) — nothing done.` — and **STOP**.
+Do nothing else: no session check, no sub-skills, no report table.
+
+## 2. Verify the engine session
+
+```bash
+.venv/bin/python -m cs whoami
+```
+
+Expect `signed_in: true` and `email: {{ email_address }}`. If either is
+missing or wrong (daemon down, token mint failure, or — critically — an
+identity that is NOT {{ email_address }}): print
+`cs-operator: engine session unavailable — STOP. <one-line reason>` and
+**STOP**. Do **not** run the sub-skills, do **not** guess, do **not** act
+on a partial or wrong-identity session. A failed session is a clean no-op
+for this tick.
+
+## 3. Recurring job — triage inbound {{ email_address }} mail
+
+Run the inbound-mail triage sub-skill:
+
+```
+/triage-support-mail
+```
+
+It finds inbound {{ email_address }} mail needing a human answer, reads full bodies
+(not snippets) via the engine, and — under `CS_TRIAGE_MODE` — composes
+replies **through the engine** (memory + trained voice + threading). In
+`draft` mode it leaves engine drafts for Mario and **sends nothing**; it
+escalates judgment calls / out-of-scope / angry mail rather than
+auto-answering, and marks handled threads so a later tick does not
+re-draft them. Capture what it reports (drafted / escalated / nothing to
+do). If it has nothing to do, that is a valid outcome — record it and move
+on.
+
+## 4. Recurring job — advance active campaigns
+
+Run the campaign sub-skill:
+
+```
+/campaign-tick
+```
+
+It advances every **active** campaign **except** the
+`{{ excluded_campaign }}` campaign (a dedicated process owns it;
+`cs campaign pending` already drops it). It reconciles already-sent composed drafts against the
+Sent archive (no re-mailing), handles replies, and — for any free-form
+reply — composes via the engine under `CS_TRIAGE_MODE` (draft now). It
+defaults to **escalate on uncertainty**. Capture what it reports
+(reconciled / reminders / SMS / acks drafted / escalations / nothing to
+do). Nothing-to-do is a valid outcome.
+
+## 5. Do not exceed the sub-skills
+
+This run's authority ends at what steps 3–4 normally do. The following
+are **OUT of scope** for the bootstrap and must be **escalated, never
+performed**, even if a sub-skill surfaces them or it looks convenient:
+
+- flipping `CS_TRIAGE_MODE` from `draft` to `send` (the free-form
+  trust boundary — a stop-and-ask gate);
+- any mass send, or any customer-visible send beyond what the sub-skills
+do under their own guardrails;
+- touching the migration campaign, retiring the legacy migration cron, or
+  removing the migration-campaign exclusion;
+- installing / cutting over crontab lines;
+- the Friday `service_number` cutover.
+
+If you believe one of these is needed, put it under "Escalations" in the
+report and STOP — do not do it.
+
+## 6. Report, then STOP
+
+Print one compact summary — Italian, founders' register: tight, no
+jargon, no emoji, no "fammi sapere". Fold both sub-skill results into a
+**single** consolidated escalations list. Structure:
+
+```
+cs-operator — <UTC timestamp>
+
+Engine:  {{ email_address }} ✓
+Triage:  <una riga: bozze N / escalate N / nulla da fare>
+Campagne: <una riga: riconciliati N / promemoria N / SMS N / ack-bozza N / nulla da fare>
+
+Escalations (need you):
+- <una riga per item; ometti la sezione se vuota>
+```
+
+Rules for the report:
+- If both sub-skills had nothing to do, say so plainly (e.g.
+  `Triage: nulla da fare`, `Campagne: nulla da fare`) — an idempotent
+  no-op tick is a correct, expected result, not a problem.
+- The escalations list is the union of: triage escalations, campaign
+  escalations, and any out-of-scope item from step 5 you declined to do.
+  If there are none, omit the `Escalations` section entirely.
+- Report anomalies (an RPC error, an unexpected campaign state, a
+classification you were unsure about) as escalation lines — surface,
+not resolve.
+
+After the report, **STOP**. Do not loop, do not re-run the sub-skills, do
+not start anything new. The next tick is the cron's job.

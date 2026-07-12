@@ -1,0 +1,42 @@
+---
+description: Architecture & Rules Alignment Check
+allowed-tools: Bash(git *) Bash(make *) Bash(npm *) Bash(sbt *) Bash(pytest *)
+---
+
+## Repo profile
+*Only this block varies per repo; everything below it is identical across all repos.*
+- Smoke/build: no test suite (Python CLI). Offline smoke: `.venv/bin/python -m py_compile cs/*.py` (parse) + `.venv/bin/python -m cs --help` (CLI wiring) — both exit 0 with no engine. Semantic check = a read-only live verb against the engine: `.venv/bin/python -m cs whoami` / `cs plan` / `cs dossier <email>`. Never claim "works" without a real verb run.
+- Static docs (on demand): `docs/ARCHITECTURE.md` (as-built — **source of truth**; wins over `CLAUDE.md` and this file; read first), `docs/general-operator-plan.md` (original handoff/history), `docs/drafts-rpc-plan.md`, `docs/case-study-centralix-vonage-cutover.md`. Absolute constraints: `CLAUDE.md` §5 "Safety (NEVER)" + outreach policy in the support@ profile `USER_NOTES` (engine-side, edited via `cs rpc settings.update`, never in this repo). NB `CLAUDE.md` is partly stale vs. code (see alignment check 1) — verify against `cs/` before trusting an absolute.
+- Active-context: `docs/active-context.md` (primary — carries `doc_baseline_commit`).
+- Execution plans: `docs/execution-plans/` (none yet — create on first plan).
+- Routing: single tree ⇒ everything → `docs/active-context.md`.
+- Repo-specific alignment checks: (1) **Send boundary** (code-verified 2026-06-30): the headless/cron operator NEVER sends — verbs are read-only/draft-only and sends are double-denied by the cron wrapper `cs/scripts/cs_operator_cron.sh --disallowed-tools` AND `.claude/settings.json` (`cs chat`, `cs rpc chat`, `campaign send-draft`, `rpc settings.update`). Sending needs a deliberate human `CS_TRIAGE_MODE=send` + relaxed perms. Two real send surfaces must stay behind that gate: contextual replies → the engine's approval-gated `send_draft` (`cs chat --allow send_draft`); fixed-template bulk → **cs-owned SMTP** (`cs/send_mail.py`, also driving the *excluded* `migration_loop`). `CLAUDE.md` §5/v2 "no cs-owned SMTP" is overstated — code has one by design (matches §2/§6 + the hb ownership map). (2) Identity ALWAYS support@; the `CS_ACCOUNTS` registry holds only `@mrcall.ai` uids — never an `@cafe124.it` uid (that is the separate `124-cs` project). (3) Outreach style/policy lives in the engine profile's `USER_NOTES` (`cs rpc settings.update`), NEVER as ad-hoc style files or per-prompt coaching in this repo. (4) Relevance/triage classification of free text = LLM with structured output, never regex/string matching. (5) RPC response wrapper keys are not uniform (`threads` vs `emails` vs bare array) — parse the documented key (`CLAUDE.md` §1) or silently get 0 rows (every caller `.get(key, [])`-degrades to `[]`). (6) Dedup truth = Gmail's Sent folder (`cs contacted` / `cs/gmail_archive.py`), not the engine archive.
+- Notes: private GitHub `hahnbanach/mrcall-cs`, branch `main`; runs on `desktop.mrcall.ai` (cron opt-in; Phase 1 draft-first; `dry_run=True`/`autonomous=False` defaults). Built to be **cloned** for other companies — `124-cs` (`~/124`) is the sibling clone; keep the two strictly separate. Never auto-commit; the operator reviews.
+
+Lightweight mid-session tick. Decide whether to act or stay quiet. Budget: ~15 seconds of attention; surface only what needs action now.
+
+## Step 1 — Refresh constraints
+Reload the relevant static layer for the area you are touching (see profile) — absolute rules first.
+
+## Step 2 — Inspect recent changes (pre-injected)
+!`git diff --stat`
+Focus on structural change: new files / imports, changed module boundaries, new public surface. Run `git diff` on anything that looks structural.
+
+## Step 3 — Mechanical enforcement
+Run the smoke command (see profile) when code moved. Automated checks are the source of truth, not subjective review.
+
+## Step 4 — Manual alignment (only what automation misses)
+- New files / modules respect layering and dependency direction?
+- New deps flow only in the permitted direction?
+- Data validated at boundaries, not deep in business logic?
+- Cross-cutting concerns enter through designated interfaces?
+- Plus the repo-specific checks in the profile.
+
+## Step 5 — Harness gaps
+If a violation was possible because nothing automated catches it:
+`Harness gap: [description]. Recommend [enforcement] → harness-backlog (see profile).`
+
+## Output
+- All clear: `Aligned.`
+- Violations: bullets — rule, location, fix. Mechanical > style.
+- Harness gaps: append `Harness gaps detected:` + recommendations.

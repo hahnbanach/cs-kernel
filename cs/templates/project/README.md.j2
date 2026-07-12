@@ -1,0 +1,80 @@
+# {{ company_name }} — {{ company_display_name }} customer-service operator
+
+**What this is.** An autonomous-but-gated operator for the
+**{{ email_address }}** mailbox. It triages incoming mail, drafts replies in
+{{ company_from_name }}'s voice, and advances outreach campaigns — but **nothing is
+sent automatically**: it prepares drafts, *you* review and send.
+This is the original; other `<name>-cs` clones are stamped from it.
+> New here? Read this top-to-bottom. For depth: [CLAUDE.md](CLAUDE.md) (operator
+> manual) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (as-built config,
+stamped from `manifest.toml`).
+
+## How it works (the short version)
+
+- **Body** = the `mrcall-desktop` engine on `desktop.mrcall.ai`: it syncs the
+  mailbox, holds entity memory, a writing voice trained on the mailbox's own
+  sent mail, tasks, and the compose/draft/send tools. One engine profile per mailbox.
+- **Brain** = this repo (`cs`, a thin CLI installed from the pinned `cs-kernel`)
+  + Claude Code skills. The brain decides; the engine does the mail work.
+- **You** = the human who reviews the drafts and sends them. Until you flip the
+  trust switch, the operator **only drafts** — by config *and* by permission.
+
+## The accounts (this project only)
+
+`cs accounts` lists them: {% for name, uid in accounts.items() %}{{ name }}{% if not loop.last %}, {% endif %}{% endfor %} (default `{{ accounts_default }}`).
+**Only {{ email_address }}'s mail domain lives here** — another project's
+accounts are never mixed in (different repos, config, registries).
+
+## The pieces specific to {{ company_name }}
+
+- **Producer (outreach worklist):** `cs plan` reads the `{{ producer_adapter }}` producer (leads / signups / cancellations).
+- **CRM:** `cs business <email>` / the dossier query {{ crm_adapter }} (`mrcall.search_businesses`) — the {{ company_name }} telephony CRM.
+- **Product mechanics** (what we sell, how, the policies) live in the engine's
+  **`USER_NOTES`**, not in this repo.
+- The `{{ excluded_campaign }}` campaign is carved out to a dedicated process.
+## What runs (cron is opt-in)
+
+The operator tick is `claude -p "/cs-operator"` (triage + campaign-tick,
+draft-only). The cron wrapper is `bin/cs_operator_cron.sh`; **enable it in
+crontab when you want autonomous ticks** (declared intent: `{{ cron_schedule }}` —
+cs-operator every 2h, business hours, weekdays; verify the live crontab). Each tick sends nothing
+(`CS_TRIAGE_MODE={{ cs_triage_mode }}` + draft-only permissions) and escalates on uncertainty.
+
+**Kill-switch:** `touch ~/.{{ company_slug }}-cs/CS_PAUSE` stops every tick instantly;
+delete the file to resume.
+
+## What YOU do
+
+1. **See what's ready** — open Gmail → **Bozze** (Drafts): review, edit, send.
+   Replies return to the mailbox and re-ingest automatically.
+2. **Or open a Claude session** here (`claude`) and use `/cs-review`,
+   `/triage-support-mail`, `/campaign-tick`, `/munchausen`,
+   `/analyze-account <name>`, or just ask.
+3. **Send** — always your call: from Gmail Drafts, or in a session after review
+   (`cs chat "invia la bozza per X" --allow send_draft`, only on a draft you've seen).
+
+> The operator is **draft-first**. You are the send button.
+
+## Setup / config
+
+- Author `manifest.toml` (the single source of variance) and `company/*.md`
+  (skill prose slots); everything else is stamped by `cs-template`.
+- `~/.{{ company_slug }}-cs/.env` holds the secrets + real account uids
+  (see [.env.example](.env.example)).
+- `USER_NOTES` authored (voice / policy) via `cs rpc settings.update`.
+- `.venv` with the pinned kernel: `pip install -r requirements.txt`.
+
+## Safety (the NEVERs)
+
+- Never sends without your review — draft-only by config **and** by permission.
+- Never writes to anyone without their dossier; never cold-mails an address that
+  already has a thread; never re-contacts within `DEDUP_DAYS` (default {{ dedup_days }}).
+- Never touches another project's accounts.
+- `~/.{{ company_slug }}-cs/CS_PAUSE` = instant global stop.
+
+## Map
+
+- [CLAUDE.md](CLAUDE.md) — operator manual (engine RPC shapes, verbs, pipeline, skills, safety).
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — as-built config + generic design.
+- `manifest.toml` — the declared per-company variance · `company/*.md` — skill prose · `campaigns/` — packs.
+- `.venv/bin/python -m cs <verb>` — run any verb; `cs accounts`, `cs --account <name> <verb>` for multi-account.

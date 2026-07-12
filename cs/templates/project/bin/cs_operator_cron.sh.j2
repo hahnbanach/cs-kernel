@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# {{ company_name }} general operator — one headless tick.
+#
+# Fired by cron every 2h in business hours. Runs `claude -p "/cs-operator"`:
+# triage inbound {{ email_address }} mail into review DRAFTS + advance active campaigns
+# (reconcile already-sent drafts, handle replies). With CS_TRIAGE_MODE=draft
+# (the default) NOTHING is sent to a customer autonomously.
+#
+# Guards: CS_PAUSE file = global kill-switch (no crontab edit needed);
+# flock = never let a slow tick overlap the next one. Logs IDs/actions only.
+#
+# cd's to its OWN repo root, so the same script works from the cs-operator
+# worktree (testing) and from main (after merge) with no edit.
+set -uo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+CLAUDE_BIN="${CLAUDE_BIN:-$HOME/.local/bin/claude}"   # cron has a minimal PATH
+STATE="$HOME/.{{ company_slug }}-cs"
+LOG="$STATE/cs_operator.log"
+LOCK="$STATE/cs_operator.lock"
+PAUSE="$STATE/CS_PAUSE"
+mkdir -p "$STATE"
+
+ts() { date -u +%FT%TZ; }
+
+if [ -f "$PAUSE" ]; then
+  echo "$(ts) {{ company_prog_name }}: paused (CS_PAUSE present) — skip" >>"$LOG"
+  exit 0
+fi
+
+# Non-blocking lock: if the previous tick is still running, skip this one.
+exec 9>"$LOCK"
+if ! flock -n 9; then
+  echo "$(ts) {{ company_prog_name }}: previous tick still running — skip" >>"$LOG"
+  exit 0
+fi
+
+cd "$ROOT" || { echo "$(ts) {{ company_prog_name }}: cannot cd $ROOT" >>"$LOG"; exit 1; }
+echo "$(ts) {{ company_prog_name }}: tick start (root=$ROOT)" >>"$LOG"
+# Draft-only is enforced HERE, on the cron, INDEPENDENT of .claude/settings.json
+# (which the interactive REPL shares — a human may relax it to send from the REPL).
+# Re-deny every customer-send / mutate surface so a skill bug or a prompt-injection
+# in inbound mail can never send autonomously. NOTE: settings.json allows the broad
+# `cs rpc:*`, so the `cs rpc chat` deny is load-bearing and MUST live here too.
+"$CLAUDE_BIN" -p "/cs-operator" \
+  --disallowed-tools \
+    "Bash(.venv/bin/python -m cs chat:*)" \
+    "Bash(.venv/bin/python -m cs rpc chat:*)" \
+    "Bash(.venv/bin/python -m cs campaign send-draft:*)" \
+    "Bash(.venv/bin/python -m cs rpc settings.update:*)" \
+    "Write" "Edit" "Bash(rm:*)" "Bash(git push:*)" \
+  >>"$LOG" 2>&1
+rc=$?
+echo "$(ts) {{ company_prog_name }}: tick end (exit $rc)" >>"$LOG"
+exit "$rc"

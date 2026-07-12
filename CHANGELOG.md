@@ -3,6 +3,29 @@
 Clones pin **tags only**. Every entry states which clones must re-collaudo
 and at which tier (design brief §6.6: static / +live read-only / full).
 
+## v0.2.0 — 2026-07-12
+
+### Added — project template + `cs init` / `cs update`
+- `cs/templates/project/` — Jinja2 project skeleton (skills, commands, company
+  prose slots, docs, bin, manifest, requirements). Includes the generic
+  `/customer` skill.
+- `cs init` — interactive clone generator: prompts → render → `git init` →
+  writes `template-manifest.json` (init_data + sha256 checksums).
+- `cs update` — selective re-apply of template changes; asks on local
+  modifications; same Jinja env as init (`trim_blocks`/`lstrip_blocks`).
+- Dependency: `jinja2>=3.1`. Package data ships templates with the wheel.
+
+### Collaudo (this release)
+- StrictUndefined render of all 30 templates: 0 failures.
+- init→update no-op on a throwaway clone: 0 updated / 0 skipped / 0 added.
+- Existing verbs still resolve via editable install (`cs --help`).
+
+### Re-pin impact
+- Clones that only run operator verbs: optional re-pin (new surface only).
+- Anyone adopting `init`/`update` or a fresh clone: pin `@v0.2.0`.
+- Full collaudo tier: static (help tree grows by `init`/`update` early exit;
+  they bypass manifest load). Live read-only verbs unchanged.
+
 ## v0.1.0 — 2026-07-09
 
 Initial extraction of the shared kernel from the two specimens — A (the

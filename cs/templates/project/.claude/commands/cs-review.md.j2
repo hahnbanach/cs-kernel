@@ -1,0 +1,60 @@
+---
+description: Operator review — open a session and see what the headless cs-operator prepared and left for you. Lists drafts waiting in support@mrcall.ai's Gmail Drafts, open engine tasks (triage escalations), per-campaign flags, and the last tick. ZERO side effects; this is where YOU review and authorise — the operator only ever drafts.
+---
+
+# mrcall-cs — Operator Review
+
+The bootstrap you run when you sit down: it shows what the headless operator
+**prepared** (drafts) and **left for you** (escalations / open tasks). The
+operator is draft-only by permission — it never sent anything. **You** are the
+authorise step: review the drafts and send them, handle the escalations.
+
+Run the steps silently; the only user-visible text is the digest + your offer
+of next actions. **ZERO side effects** (no sends, no marks, no drafts).
+
+All commands run from the repo root with `.venv/bin/python -m cs …`.
+
+## 1. Verify the engine session
+
+```bash
+.venor/bin/python -m cs whoami
+```
+
+Expect `signed_in: true`, `email: support@mrcall.ai`. If it fails, say so and
+stop — the digest needs the engine.
+
+## 2. The digest
+
+```bash
+.venv/bin/python -m cs review
+```
+
+Read-only aggregation: drafts waiting in support@mrcall.ai's Gmail Drafts, open engine
+tasks (where triage escalations live), per-campaign state + contacts flagged
+escalated / engaged / declined, and the last cron tick from the log.
+
+## 3. Present + offer
+
+Present the digest in Italian, founders' register: tight, no emoji, no "fammi
+sapere". Lead with the numbers (N bozze, M task/escalation), then the lists.
+End by offering the next move:
+
+```
+Da dove partiamo?
+- rivedere/inviare una bozza (sono nei Gmail Drafts di support@mrcall.ai);
+- gestire un'escalation o un task aperto;
+- preparare una risposta a X (te la metto in bozza, la rivedi e invii tu).
+```
+
+## 4. Posture — the authorise boundary
+
+- **The operator drafted; YOU send.** A reviewed draft is sent by you — from
+  Gmail, or by telling this session to send it via the supervised path
+  (`cs chat "…" --allow send_draft`, used ONLY on a draft you just read and
+  approved). The headless operator has no send capability, by permission.
+- **"prepara una risposta a X"** → `cs draft-reply "rispondi nel thread con
+  X: …"` (engine compose, a DRAFT; you review + send). Report subject + body
+  back to the operator verbatim.
+- **Clearing an escalation** after you handle it →
+  `cs campaign mark <id> --dossier '{"escalated": false}' --commit`.
+- You do not blast, you do not auto-send. One reviewed draft at a time.

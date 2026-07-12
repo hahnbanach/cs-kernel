@@ -33,6 +33,7 @@ from . import campaign as campaign_mod
 from . import filter as filt
 from . import manifest as manifest_mod
 from . import state as state_mod
+from . import project_init, project_update
 
 
 def _print_json(obj) -> None:
@@ -426,6 +427,17 @@ def cmd_accounts(args) -> int:
 
 
 def main(argv=None) -> int:
+    # --- init/update: work WITHOUT a manifest ---
+    if argv is None:
+        argv = sys.argv[1:]
+    if argv and argv[0] in ("init", "update"):
+        cmd = argv[0]
+        rest = argv[1:]
+        if cmd == "init":
+            return project_init.cmd_init(rest)
+        elif cmd == "update":
+            return project_update.cmd_update(rest)
+    
     try:
         settings = config.load()
     except manifest_mod.ManifestError as e:
@@ -524,7 +536,7 @@ def main(argv=None) -> int:
     pdrv = sub.add_parser(
         "drive",
         help="read-only Google Drive (Shared Drives via the cs service-account): "
-        "`drive ls [driveOrFolderId]` | `drive cat <fileId>`",
+        "`drive ls [id] | cat <fileId>`",
     )
     pdrv.add_argument("drive_args", nargs=argparse.REMAINDER, help="ls [id] | cat <fileId>")
     pdrv.set_defaults(func=cmd_drive)

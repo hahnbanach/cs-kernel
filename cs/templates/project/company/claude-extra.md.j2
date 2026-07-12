@@ -1,0 +1,24 @@
+## 1b. mrcall-agent (assistant configurator) — verified access
+
+The SAME Firebase session (cs/auth.py mint for support@) authenticates
+against `mrcall-agent`, whose StarChat role for support@ spans
+businesses cross-owner. **Verified live 2026-06-11** on production:
+
+- Base: `https://zylch.mrcall.ai` (test realm: `https://zylch-test.mrcall.ai`)
+- Header: `Authorization: Bearer <id-token>` (the deployed dependency
+  requires this exact header; the in-code `auth:` docstrings are stale)
+- Probes that returned 200: `GET /api/chat/sessions`,
+  `GET /api/mrcall/training/status?business_id=<id>`
+
+Configure surface (the dashboard's ConfigureAI, drivable headless):
+
+| Endpoint | Role |
+|---|---|
+| `POST /api/chat/message` (or `/message/stream`) | agentic configurator loop, 10 configure tools; use `session_id=mrcall_config_{businessId}`; edits accumulate as **pending changes (dry-run)** |
+| `GET /api/chat/history?session_id=…` | review the session + `pending_changes` |
+| `POST /api/mrcall/apply-changes` | **applies pending changes — MUTATES the business**; operator's explicit ok required, per business |
+| `POST /api/mrcall/training/start` / `GET …/status` / `POST …/reset` | (re)train the linked assistant |
+
+Untested as of 2026-06-11: a full message → pending → apply round (it
+mutates a real business; run it first on a sacrificial business or the
+test realm, on the operator's instruction).

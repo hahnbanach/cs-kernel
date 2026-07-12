@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cs-kernel"
-version = "0.1.0"
+version = "0.2.0"
 description = "Shared kernel of the <company>-cs customer-service operators: import package `cs` (frozen module path), per-company variance declared in the clone's manifest.toml."
 requires-python = ">=3.11"
 # Dependencies = the specimens' requirements.txt, unchanged.
@@ -14,7 +14,12 @@ dependencies = [
     "websockets>=13",
     "google-auth>=2.29",
     "requests>=2.31",
+    "jinja2>=3.1",
 ]
 
 [tool.setuptools.packages.find]
 include = ["cs*"]
+
+# Ship Jinja project templates with the package (cs init / cs update).
+[tool.setuptools.package-data]
+cs = ["templates/project/**/*"]

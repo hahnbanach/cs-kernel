@@ -1,0 +1,54 @@
+---
+description: Commit Session State to Documentation
+disable-model-invocation: true
+allowed-tools: Bash(git *)
+---
+
+## Repo profile
+*Only this block varies per repo; everything below it is identical across all repos.*
+- Smoke/build: no test suite (Python CLI). Offline smoke: `.venv/bin/python -m py_compile cs/*.py` (parse) + `.venv/bin/python -m cs --help` (CLI wiring) — both exit 0 with no engine. Semantic check = a read-only live verb against the engine: `.venv/bin/python -m cs whoami` / `cs plan` / `cs dossier <email>`. Never claim "works" without a real verb run.
+- Static docs (on demand): `docs/ARCHITECTURE.md` (as-built — **source of truth**; wins over `CLAUDE.md` and this file; read first), `docs/general-operator-plan.md` (original handoff/history), `docs/drafts-rpc-plan.md`, `docs/case-study-centralix-vonage-cutover.md`. Absolute constraints: `CLAUDE.md` §5 "Safety (NEVER)" + outreach policy in the support@ profile `USER_NOTES` (engine-side, edited via `cs rpc settings.update`, never in this repo). NB `CLAUDE.md` is partly stale vs. code (see alignment check 1) — verify against `cs/` before trusting an absolute.
+- Active-context: `docs/active-context.md` (primary — carries `doc_baseline_commit`).
+- Execution plans: `docs/execution-plans/` (none yet — create on first plan).
+- Routing: single tree ⇒ everything → `docs/active-context.md`.
+- Repo-specific alignment checks: (1) **Send boundary** (code-verified 2026-06-30): the headless/cron operator NEVER sends — verbs are read-only/draft-only and sends are double-denied by the cron wrapper `cs/scripts/cs_operator_cron.sh --disallowed-tools` AND `.claude/settings.json` (`cs chat`, `cs rpc chat`, `campaign send-draft`, `rpc settings.update`). Sending needs a deliberate human `CS_TRIAGE_MODE=send` + relaxed perms. Two real send surfaces must stay behind that gate: contextual replies → the engine's approval-gated `send_draft` (`cs chat --allow send_draft`); fixed-template bulk → **cs-owned SMTP** (`cs/send_mail.py`, also driving the *excluded* `migration_loop`). `CLAUDE.md` §5/v2 "no cs-owned SMTP" is overstated — code has one by design (matches §2/§6 + the hb ownership map). (2) Identity ALWAYS support@; the `CS_ACCOUNTS` registry holds only `@mrcall.ai` uids — never an `@cafe124.it` uid (that is the separate `124-cs` project). (3) Outreach style/policy lives in the engine profile's `USER_NOTES` (`cs rpc settings.update`), NEVER as ad-hoc style files or per-prompt coaching in this repo. (4) Relevance/triage classification of free text = LLM with structured output, never regex/string matching. (5) RPC response wrapper keys are not uniform (`threads` vs `emails` vs bare array) — parse the documented key (`CLAUDE.md` §1) or silently get 0 rows (every caller `.get(key, [])`-degrades to `[]`). (6) Dedup truth = Gmail's Sent folder (`cs contacted` / `cs/gmail_archive.py`), not the engine archive.
+- Notes: private GitHub `hahnbanach/mrcall-cs`, branch `main`; runs on `desktop.mrcall.ai` (cron opt-in; Phase 1 draft-first; `dry_run=True`/`autonomous=False` defaults). Built to be **cloned** for other companies — `124-cs` (`~/124`) is the sibling clone; keep the two strictly separate. Never auto-commit; the operator reviews.
+
+Consolidate session knowledge — Dream pattern: Orient → Gather → Consolidate → Prune. Ground truth is git plus the session transcript, never half-remembered context.
+
+## Gate check — is consolidation needed?
+At least one must hold, else output `No consolidation needed.` and stop:
+- Change gate: `git status` / `git diff` shows uncommitted or recently committed work.
+- Context gate: the primary active-context (see profile) no longer matches reality.
+- Plan gate: an execution plan has completed-but-unchecked steps.
+
+## Phase 1 — Orient (ground truth, pre-injected)
+Uncommitted work:
+!`git status --short`
+Recent commits:
+!`git log --oneline -n 15`
+
+1. Read `doc_baseline_commit` from the primary active-context frontmatter (see profile). The change set to consolidate is everything in `git diff <doc_baseline_commit>..HEAD` — precise; do not guess a `HEAD~N` range. If the field is absent, fall back to `git diff HEAD~5..HEAD` and note you are establishing the baseline now.
+2. If unsure what landed this session vs. earlier, ask rather than guess.
+3. Read the docs you will edit: the active-context file(s), and the static doc for any area with a real structural change (see profile).
+
+## Phase 2 — Gather signal
+Two kinds. The second is the one git CANNOT show you and is most often lost:
+- From the diff (code / structure): new modules, resources, endpoints; changed boundaries; new deps; completed plan steps; tests added or broken; tech debt; harness gaps.
+- From the session, NOT the diff: decisions made and why; approaches tried and rejected and why; user corrections and preferences stated this session; constraints and gotchas discovered. None of this appears in `git diff` — capture it here or it is gone.
+
+## Phase 3 — Consolidate (reconsolidate, don't append)
+Merge into existing content — no changelogs (git log is the changelog). Living docs are declarative and present-tense.
+Verify-before-done gate: record a feature as built / working ONLY if it was verified end-to-end this session, the way the user runs it (CLI / API / browser / REPL) — not because code was written or unit tests passed. Coded-but-unverified ⇒ in progress / needs verification, never working.
+- Primary active-context (see profile): overwrite to the state right now — built & verified, completed this session, unresolved / failing / incomplete, immediate next steps. Route each fact per the profile's routing (single tree ⇒ all here; multi-tree ⇒ to the owning tree). Respect any size caps / pruning rules in the profile.
+- Static docs (architecture / conventions — see profile): update ONLY on real structural change; delete descriptions of things that no longer exist.
+- Execution plans: check off completed steps, record decisions, set `status: completed` when done; match each plan's existing shape.
+- Quality / harness docs (see profile, where the repo keeps them): update quality grades if coverage / debt / quality moved; log enforcement gaps to harness-backlog.
+
+## Phase 4 — Prune & advance the baseline
+- Delete stale references — a doc naming a file, feature, or decision that no longer exists is worse than no doc. Rename or merge; don't accumulate.
+- Keep the index `CLAUDE.md` thin and its pointers valid.
+- Advance the baseline: set `doc_baseline_commit` to the output of `git rev-parse HEAD` and update `doc_baseline_date` in the primary active-context frontmatter. This is what the next session diffs from.
+
+## Output
+`Session state committed. Baseline advanced to <sha>. [docs touched]. [N plan steps completed. N harness gaps logged.]`

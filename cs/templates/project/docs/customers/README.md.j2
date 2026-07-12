@@ -1,0 +1,43 @@
+# docs/customers/ — dossier clienti & prospect
+
+## Convenzione
+
+- **Una cartella per azienda** (`<azienda>/`), con il dossier `<azienda>.md` e i documenti correlati (proposte, PDF/DOCX, allegati).
+- Tracciata in **git** (repo privato `hahnbanach/{{ company_slug }}-cs`) per sync multi-macchina. **Niente segreti/credenziali** in questi file.
+- I **codebase dei clienti** (es. `~/hb/gencolor/`, che è di CNIT) restano dove sono, **fuori** da qui: nel dossier basta annotare che esistono / che li abbiamo scaricati.
+
+## Principio chiave — la memoria dell'engine è la fonte di richiamo
+
+Questi file sono **documenti** (artefatti leggibili dall'umano). La **fonte di verità per il richiamo dell'operatore è la memoria dell'engine `mrcall-desktop`** — la conoscenza "sempre accesa" da cui l'agente attinge (`cs ask`, triage, compose).
+
+**Tutte le informazioni devono sempre stare ANCHE nella memoria dell'engine, non solo in questi file.** Un dossier che non è sostenuto dalla memoria è un artefatto morto: l'operatore non lo "sa".
+
+- L'informazione che arriva **via mail** è in memoria **automaticamente**, tramite la pipeline di update:
+  `cs --account <acct> rpc update.run` (sincronizza posta → memoria/entità → task).
+- L'informazione che **non** arriva da mail (ricerca web, debrief a voce, decisioni prese in riunione) va **portata esplicitamente nella memoria dell'engine** — tramite i tool `create_memory` / `update_memory` dell'engine (es. sessione interattiva `cs chat --allow create_memory "…"`), non lasciata solo nel dossier.
+  - **Nota (gap noto, lug 2026):** il turno `cs chat` di scrittura in memoria **persiste il dato engine-side ma NON ritorna in modo pulito al client** — va in `TimeoutError` dopo l'approvazione di `update_memory` (il turno non si chiude; visto a 600s e 1500s). Quindi: trattalo come **fire-and-forget** e **verifica sempre con `cs ask`** che il fatto sia effettivamente in memoria. Il turno-non-si-chiude è un difetto engine-side da correggere a parte.
+
+In pratica: quando scrivi/aggiorni un dossier qui, assicurati che gli stessi fatti siano (o finiscano) nella memoria dell'engine — il documento è la copia leggibile, la memoria è il cervello.
+
+## Procedura agente — quando Mario chiede di un customer
+
+**Obbligatorio prima di rispondere** (anche se esiste già un file qui). Non
+limitarsi a leggere `docs/customers/` — è la trappola del pesce rosso.
+
+1. **Memoria engine (prima):**
+   ```bash
+   .venv/bin/python -m cs --account {{ founder_sweep_account if founder_sweep_enabled else email_address }} ask "<azienda / contatti / stato / scadenze>"
+   .venv/bin/python -m cs ask "<stessa domanda>"   # se può essere su {{ accounts_default }}
+   ```
+   Molte relazioni cliente (es. Gencolor/CNIT) vivono su **`{{ founder_sweep_account if founder_sweep_enabled else email_address }}`**,
+   non su `{{ accounts_default }}` (default del loop autonomo). I nomi in `cs accounts` sono
+   **indirizzi mail** (mai un bare "mario" — ci sono più caselle omonime). Se
+   `{{ accounts_default }}` è vuoto e il dossier cita quella casella, **queryala**.
+2. **Contatti chiave:** `cs --account {{ founder_sweep_account if founder_sweep_enabled else email_address }} dossier <email>`
+   (e {{ accounts_default }} se serve) — thread, task aperti, contacted, CRM.
+3. **Dossier file (seconda):** `docs/customers/<azienda>/` — sintesi leggibile,
+   proposte, analisi; confronta con l'engine e segnala drift.
+4. **Rispondi** unendo i due strati; se l'engine è più fresco del file, il
+   file è stale (aggiornalo quando chiudi il pezzo di lavoro).
+
+Regola gemella in `CLAUDE.md` §9 (caricata a ogni sessione agente).

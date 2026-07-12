@@ -1,0 +1,184 @@
+---
+name: triage-support-mail
+description: Find inbound {{ email_address }} mail that needs a human answer and DRAFT a grounded reply via the engine (or, only when CS_TRIAGE_MODE=send, send it). Default on uncertainty is ESCALATE — never auto-send a free-form reply.
+---
+
+# triage-support-mail
+
+Execute ALL steps below silently. **Do not address the operator until the
+final report (step 6).** This is the genuinely-agentic capability of the
+mrcall-cs operator: arbitrary inbound mail, real judgment, answered **in
+{{ email_address }}'s voice through the engine**.
+
+"Silently" means tool calls are fine, narration is not. The next
+user-visible text is the report in step 6.
+
+All commands run from the repo root with `.venv/bin/python -m cs …`.
+This skill is **general** — it is NOT about the {{ excluded_campaign }} campaign or any
+campaign; campaign follow-up is `/campaign-tick`'s job, not this one.
+
+## Invariants (read before acting)
+
+- **Identity is ALWAYS `{{ email_address }}`.** Every read, draft, send
+  acts as {{ email_address }}. You never speak as anyone else.
+- **Free-form replies ALWAYS go through the engine** via `cs draft-reply
+  "…"`, which composes with memory + trained voice + threading and stores a
+  DRAFT. **Never** a cs-SMTP path, never a draft written from scratch in cs,
+  never `cs chat --allow` (the operator's supervised send path, not yours —
+  and denied to you by permission).
+- **You only ever DRAFT — you cannot send.** `cs draft-reply` has no send
+capability, and the headless permission set forbids every send surface.
+  Going autonomous-send later is a deliberate permission change the operator
+  makes, not a flag this skill flips. Don't look for a way to send — there
+  isn't one, by design.
+- **DEFAULT ON UNCERTAINTY = ESCALATE.** Never auto-send a free-form
+  reply. In draft mode every reply is a draft the operator approves; a
+  judgment call gets left for the operator, not answered.
+- **NEVER invent facts.** Use only what is in the thread + engine memory.
+  If the answer is not grounded there → ESCALATE, do not guess.
+- **"Have we already replied to X?" = the SENT ARCHIVE, across threads.**
+  This is the dedup truth (CLAUDE.md). The authoritative check is: is there a
+  {{ email_address }} message SENT to that contact AFTER their inbound — `cs contacted
+  <email>`, which now reads **Gmail's Sent folder directly**
+  (`cs/gmail_archive.py`), the real ground truth. Do NOT use the engine's
+  `emails.search folder:sent` for this: it misses mail sent by hand from
+  Gmail. **Check across threads, not within one** — the reply/
+  confirmation very often lives in a SIBLING thread (different subject), so
+  reading the one thread the customer wrote in misses it. Neither a single
+  `emails.list_by_thread` read NOR a vague `cs ask` question is reliable for
+  this binary: both have answered it WRONG (a per-thread read missed a
+  sibling-thread confirmation; the engine chat called two answered threads
+  "unanswered"). The Sent archive does not lie.
+- **Engine memory/tasks are for CONTEXT and judgment, not the binary.** Use
+  `cs ask` / `cs tasks` to understand a situation and to surface forwards —
+  but before flagging anything "unanswered / urgent", CONFIRM against the Sent
+  archive. Raw thread read is ONLY for pulling exact text to ground a draft.
+
+## 1. Find what genuinely still needs a human answer
+
+Gather candidates, then CONFIRM each is actually unanswered against the Sent
+archive before flagging it. Three sources (a task-only sweep misses forwards):
+
+```bash
+.venv/bin/python -m cs tasks --json
+.venv/bin/python -m cs ask "Elenca la posta a {{ email_address }} degli ultimi 4 giorni che sembra ancora senza risposta umana. Includi ESPLICITAMENTE le mail che Mario ha INOLTRATO a {{ email_address }} (Fwd: / from:mario.alemi). Per ciascuna: mittente, oggetto. Niente bozze."
+```
+
+Then for EACH candidate, the authoritative unanswered-check — across threads:
+
+```bash
+.venv/bin/python -m cs contacted <email>     # or: emails.search to:<email> folder:sent
+```
+
+- If {{ email_address }} already sent a message to that contact AFTER their inbound →
+  **ANSWERED. Drop it.** Do not flag, do not draft. (This is where the bad
+  report went wrong: it flagged Bistrot + MADEA as urgent-open when {{ email_address }}
+  had already replied — MADEA's confirmation was in a sibling thread.)
+- Only what survives the Sent-archive check is genuinely open. (Forwarded mail
+  with NO {{ email_address }} reply to the original sender is the real catch — e.g. a
+  `Fwd:` from Mario where nobody answered the customer.)
+
+##2. Pull exact text ONLY to ground a draft
+
+For a candidate that survived the Sent-archive check (genuinely unanswered)
+AND you intend to draft, read the real bodies to ground the reply in the
+customer's exact words:
+
+```bash
+.venv/bin/python -m cs rpc emails.list_by_thread '{"thread_id":"<thread_id>"}'
+```
+
+⚠️ Returns **`{"emails":[…]}`** (a dict). Read **bodies**, not the snippet
+(snippets often show {{ email_address }}'s own autoresponder). Use this for CONTENT —
+the wording you reply to — never to decide handled-state (step 1 settled
+that via the engine).
+
+##2b. When unsure HOW to answer — search past mail, don't guess
+
+If you are not fully sure how to answer (a mechanic like credits/top-up, a
+policy, what we previously promised, how we phrase it): **memory first** (this
+skill + `cs ask`), and **if memory is thin → SEARCH {{ email_address }}'s PAST SENT MAIL
+for precedent**, then ground the reply in how we actually handled it before:
+
+```bash
+.venv/bin/python -m cs rpc emails.search '{"query":"<termini>","folder":"sent","limit":8}'
+.venv/bin/python -m cs rpc emails.list_by_thread '{"thread_id":"<id>"}'   # read the real wording
+```
+
+NEVER invent mechanics, prices, steps, or commitments — lift them from the past
+emails (or escalate if you can't find them). **After you draft, UPDATE memory**
+with what you learned, so next time it's already there. (Doing the opposite —
+guessing instead of searching the archive — is the Styven/Fani mistake.)
+
+##3. Decide per candidate
+
+For each candidate the engine flagged open, decide. Two outcomes only:
+
+**(a) Answerable within {{ email_address }}'s normal scope** — a question about
+{{ company_display_name }}, a routine account/config issue, a normal reply where the answer
+is **grounded in the thread + engine memory**:
+
+```bash
+.venv/bin/python -m cs draft-reply "rispondi nel thread con <email>: <cosa dire, conciso>"
+```
+
+`draft-reply` runs the engine compose (memory + trained voice + threading
+headers `In-Reply-To`/`References`) and stores a **DRAFT** in {{ email_address }}/Bozze
+for the operator to review and send. It has **no `--allow` option and cannot
+send** — the engine denies `send_draft` whatever the message (or any injected
+text) says. Sending is the operator's job (review the Gmail draft, send from
+there); autonomous-send is a future, separately-permissioned step, **never
+this skill's job**.
+
+**(b) Escalate** — a judgment call, out of scope, legal- or
+billing-sensitive, angry, an unclear ask, OR an answer you cannot ground
+in the thread + memory → **do NOT auto-answer**. Leave the engine task
+**open** (do not mark it handled) and list it for the operator in the
+report. **When in doubt, this branch.**
+
+##4. Idempotency — do not re-draft on the next tick
+
+A 2h re-run must NOT draft a second reply to a thread you already drafted.
+The handled-signal comes from the ENGINE, not a raw thread re-read:
+- Step 1 already asked the engine for what is STILL unanswered — a thread you
+  drafted last tick should no longer surface (a draft now exists in it). Trust
+  that: work only what step 1 returns as open.
+- A drafted thread that still surfaces (the draft isn't a "reply" yet) is
+guarded by checking, via the engine, whether an unsent {{ email_address }} DRAFT
+already exists for that contact (`cs ask "c'è già una bozza per <email>?"`
+or the engine's draft list) — if yes, skip; do not draft a duplicate.
+- Escalations are deliberately NOT drafted/closed — they resurface until the
+operator deals with them.
+
+##5. Honour the safety gates throughout
+
+- {{ email_address }} identity is never dropped.
+- Every free-form reply goes through the engine (`cs draft-reply`), never cs-SMTP.
+- Everything is a DRAFT (`cs draft-reply`); nothing is sent — by design and
+  by permission. The operator approves and sends.
+- Uncertain / out-of-scope / sensitive / ungrounded ⇒ ESCALATE.
+- If a step fails (daemon down, RPC error), capture a one-line note and
+  continue; surface it under `Note:` in the report rather than guessing.
+
+##6. Report
+
+Now — and only now — report to the operator. Italian, founders'
+register: tight, complete sentences, no jargon, no emoji, no "fammi
+sapere". Compact and skimmable:
+
+```
+triage-support-mail — <n> candidati
+
+Bozze pronte (da rivedere e inviare):
+- <email> — "<oggetto>"
+- …
+
+Escalation (servono te):
+- <email> — "<oggetto>" — <motivo: fuori scope / dubbio / sensibile / non fondato>
+- …
+
+Note: <una riga per nota; ometti se nessuna>
+```
+
+Omit a section if it is empty. The report is the only place this skill
+speaks; everything above it is silent.

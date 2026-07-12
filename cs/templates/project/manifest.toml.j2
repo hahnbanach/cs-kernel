@@ -1,0 +1,87 @@
+[company]
+name = "{{ company_name }}"
+display_name = "{{ company_display_name }}"
+from_name = "{{ company_from_name }}"
+slug = "{{ company_slug }}"
+prog_name = "{{ company_prog_name }}"
+
+[operator]
+email_address = "{{ email_address }}"
+imap_host = "{{ imap_host }}"
+imap_port = {{ imap_port }}
+smtp_host = "{{ smtp_host }}"
+smtp_port = {{ smtp_port }}
+
+[engine]
+owner_uid = "{{ engine_owner_uid }}"
+ws_url = "{{ engine_ws_url }}"
+sa_path = "{{ firebase_sa_path }}"
+
+[engine.accounts]
+default = "{{ accounts_default }}"
+{% for name, uid in accounts.items() %}
+{{ name }} = "{{ uid }}"
+{% endfor %}
+
+[engine.founder_sweep]
+enabled = {{ 'true' if founder_sweep_enabled else 'false' }}
+account = "{{ founder_sweep_account }}"
+
+[crm]
+adapter = "{{ crm_adapter }}"
+{% if crm_adapter == 'shopify' and crm_shopify %}
+[crm.shopify]
+api_version = "{{ crm_shopify.api_version }}"
+env_prefix = "{{ crm_shopify.env_prefix }}"
+{% endif %}
+
+[producer]
+adapter = "{{ producer_adapter }}"
+{% if producer_adapter == 'mrcall-tracking' and producer_mrcall_tracking %}
+[producer.mrcall_tracking]
+script_path = "{{ producer_mrcall_tracking.script_path }}"
+python_path = "{{ producer_mrcall_tracking.python_path }}"
+{% endif %}
+
+[campaigns]
+excluded_campaign = "{{ excluded_campaign }}"
+posture_note = "{{ posture_note }}"
+
+[knobs]
+dedup_days = {{ dedup_days }}
+rate_cap = {{ rate_cap }}
+cs_triage_mode = "{{ cs_triage_mode }}"
+dry_run = {{ 'true' if dry_run else 'false' }}
+autonomous = {{ 'true' if autonomous else 'false' }}
+timezone = "{{ timezone }}"
+sms_hour = {{ sms_hour }}
+reminder_max = {{ reminder_max }}
+
+[sms]
+enabled = {{ 'true' if sms_enabled else 'false' }}
+proxy_base = "{{ sms_proxy_base }}"
+
+[drive]
+scope = "{{ drive_scope }}"
+
+[cron]
+schedule = "{{ cron_schedule }}"
+comment = "{{ cron_comment }}"
+
+[env]
+platform_env_path = "{{ platform_env_path }}"
+
+[skills]
+triage_domain_examples = "company/triage-domain-examples.md"
+team_conventions       = "company/team-conventions.md"
+campaign_product_notes = "company/campaign-product-notes.md"
+operator_out_of_scope  = "company/operator-out-of-scope.md"
+
+[extensions]
+modules = []
+retired_when_done = false
+
+[repo]
+git_remote = "{{ repo_git_remote }}"
+docs_shape = "as-built"
+kernel_version = "{{ repo_kernel_version }}"

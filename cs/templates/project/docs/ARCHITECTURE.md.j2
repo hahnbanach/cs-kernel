@@ -1,0 +1,67 @@
+# {{ company_name }} — Architecture
+
+**Source of truth for HOW the system is built + the cloning guide.** This is
+the mother clone: the generic skeleton every `<name>-cs` reuses. The shared
+engine is the kernel (`cs-kernel`, import package `cs`); the per-company
+variance is entirely in `manifest.toml`, stamped below.
+
+Everything company-specific below is STAMPED from `manifest.toml` by the
+`cs-template` copier — do not hand-edit it; change `manifest.toml` and
+`copier update` instead (variance lives in the manifest + `company/*.md`,
+never in a rendered file).
+
+---
+
+## Declared configuration (from manifest.toml)
+
+| Axis | Value |
+|---|---|
+| Company | {{ company_display_name }} (`{{ company_slug }}`) |
+| Operator identity | `{{ email_address }}` (ALWAYS — the engine gates `token.sub == OWNER_ID`) |
+| State dir | `~/.{{ company_slug }}-cs/` (db · token cache · SA key · CS_PAUSE · log) |
+| argparse prog | `{{ company_prog_name }}` (display only — module path `cs` is frozen) |
+| Engine owner uid | `{{ engine_owner_uid }}` |
+| Engine WS | `{{ engine_ws_url }}` (client appends `/ws/<uid>`) |
+| Accounts | {% for name, uid in accounts.items() %}{{ name }}{% if not loop.last %}, {% endif %}{% endfor %} (default: `{{ accounts_default }}`) — this domain ONLY |
+| Founder sweep (step 4b) | {% if founder_sweep_enabled %}on (account: `{{ founder_sweep_account }}`){% else %}off{% endif %} |
+| CRM adapter | `{{ crm_adapter }}` |
+{% if crm_adapter == 'shopify' and crm_shopify %}| CRM.shopify | API v{{ crm_shopify.api_version }}, env prefix `{{ crm_shopify.env_prefix }}` |
+{% endif %}| Producer adapter | `{{ producer_adapter }}` |
+{% if producer_adapter == 'mrcall-tracking' and producer_mrcall_tracking %}| Producer.mrcall_tracking | script: `{{ producer_mrcall_tracking.script_path }}`, python: `{{ producer_mrcall_tracking.python_path }}` |
+{% endif %}| Excluded campaign | `{{ excluded_campaign }}` (a dedicated process owns it) |
+| Drive scope | `{{ drive_scope }}` (`cs drive search` is pinned here; `all` is a test-only override) |
+| SMS | {% if sms_enabled %}enabled, proxy `{{ sms_proxy_base }}` (env `SMS_BUSINESS_ID`){% else %}disabled{% endif %} |
+| Knobs | dedup {{ dedup_days }}d · rate_cap {{ rate_cap }} · triage `{{ cs_triage_mode }}` · dry_run {{ 'True' if dry_run else 'False' }} · autonomous {{ 'True' if autonomous else 'False' }} |
+| Time windows | {{ timezone }} · SMS hour {{ sms_hour }} · reminder_max {{ reminder_max }} |
+| Cron (declared intent) | `{{ cron_schedule }}` — cs-operator every 2h, business hours, weekdays. **Verify the live crontab: the schedule here is intent, not proof it is installed.** |
+| Platform env layer | {% if platform_env_path %}via `{{ platform_env_path }}`{% else %}none (2-tuple loader: `~/.{{ company_slug }}-cs/.env` + repo `.env`){% endif %} |
+| Kernel pin | `cs-kernel@v{{ repo_kernel_version }}` (requirements.txt) |
+
+{% if posture_note %}**Campaign posture:** {{ posture_note }}{% endif %}
+
+## Outside this repo (referenced, never stamped)
+
+- **`USER_NOTES`** (the engine profile): voice, signature, transparency line,
+  recipient-language rule, LLM-ism ban, product mechanics. The biggest
+  per-company artifact — read/edit via `cs rpc settings.update`, NEVER a repo file.
+- **Secrets**: `EMAIL_PASSWORD`, `FIREBASE_WEB_API_KEY`, the real account uids
+  (`CS_ACCOUNTS`), the SA key, `SMS_BUSINESS_ID` — in `~/.{{ company_slug }}-cs/.env` (see `.env.example`).
+- **The kernel source** (`cs/`): not here — pinned in `requirements.txt`, installed into `.venv`.
+
+## The generic skeleton (all from the kernel)
+
+The body/brain split, the two campaign lifecycles, the send boundary, the
+autonomy model and the safety NEVERs are kernel-owned and identical for every
+clone — see the kernel charter (`cs-kernel` `CLAUDE.md`) and the design brief
+`cs-kernel-manifest-separation.md`. This repo carries only: `manifest.toml`,
+the rendered `.claude/` + `bin/` + docs, `company/*.md` prose, `campaigns/`
+packs, and this clone's own `docs/customers/`.
+
+---
+
+## Clone-specific notes (hand-authored — fill in)
+
+_This section is NOT stamped. Record here what is true of THIS clone that the
+manifest cannot express: the engine-profile provenance, the `USER_NOTES`
+authored, known gaps, the live crontab state, customer dossiers under
+`docs/customers/`._

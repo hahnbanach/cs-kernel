@@ -1,0 +1,42 @@
+---
+description: Run a self-referential diagnostic on the current session's reasoning and actions, checking for circular logic, unverified assumptions, or reliance on outdated context. Ensures the agent's decisions are grounded in current, verified facts rather than self-reinforcing loops.
+---
+
+# munchausen — self-referential diagnostic
+
+Run this skill when you suspect the reasoning might be circular, based on unverified assumptions, or detached from current ground truth. It forces explicit verification of each step against external, up-to-date sources.
+
+## 1. Identify claims and assumptions
+
+List every significant claim, decision, or assumption made during the session so far. For each, note the evidence or reasoning that supports it.
+
+## 2. Trace evidence to primary sources
+
+For each claim, trace the supporting evidence back to its primary source:
+
+- **Code**: Verify against the actual code in the repository, not memory.
+- **Config**: Check configuration files directly.
+- **External state**: Re-verify against the live system (e.g., database, API, engine state) — never trust a previous read.
+- **User input**: Confirm with the user if there's any ambiguity.
+
+## 3. Challenge self-referential logic
+
+Identify any reasoning that cites a previous conclusion of the same session as evidence. Break the loop by re-verifying the original claim against a primary source.
+
+## 4. Verify critical path
+
+Re-run verification on the critical path of the current task. For example, if the task involves sending a draft:
+
+```bash
+.venv/bin/python -m cs whoami
+.venv/bin/python -m cs contacted <email>
+.venv/bin/python -m cs dossier <email>
+```
+
+## 5. Report findings
+
+List any assumptions that were unverified, any circular logic identified, and any corrections made based on re-verification. If all claims are solidly grounded, state so.
+
+## 6. Correct and proceed
+
+Update the context with verified information. If significant errors are found, restart the relevant reasoning from the corrected point.

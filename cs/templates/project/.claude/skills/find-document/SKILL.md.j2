@@ -1,0 +1,74 @@
+---
+name: find-document
+description: Locate a document, file, attachment, or a specific email when it's requested ("send me the usual R&D description", a report, a prior attachment) or when you need to find mail/files that aren't in the engine's recent sync window. Searches broadly across the engine, Google Drive, and the full mailbox. Read-only — finds and reports, never drafts or sends.
+---
+
+# find-document
+
+Use this when someone asks for a document / file / attachment, or when you
+need to find a specific email or file and it isn't obviously in the
+engine's recent sync window.
+
+Read-only: this skill **finds and reports**. It never drafts or sends.
+
+## Rule 0 — search broad first (this is where the brain fails)
+
+The most common failure is an over-constrained query that returns nothing,
+followed by concluding the thing doesn't exist.
+
+- Start with ONE plain keyword — the term the requester actually used
+  ("ricerca e sviluppo", "fattura", "contratto"). Let the store rank.
+- Do NOT open with exact-phrase quotes, stacked `subject:` / `from:`
+  operators, or `-exclusions`. They destroy recall. Add constraints only to
+  trim a too-large result set — never as the first query.
+- **A NULL RESULT IS NOT PROOF OF ABSENCE.** Before saying "not found",
+  re-run with a broader single keyword and try synonyms.
+- If you delegate the search to a subagent, never relay its "couldn't find
+  it / it's an attachment" as established fact — re-verify with your own
+  broad query.
+
+## Where it lives — look in this order
+
+A "usual" recurring document may be email *body text*, an *attachment*, or
+a *Drive file*. Do not assume which; search all three surfaces.
+
+1. **Engine / mrcall-desktop** — the profile's synced mail. Fast, but only
+   the recent sync window, and it does not read binary-attachment contents.
+   ```bash
+   .venv/bin/python -m cs rpc emails.search '{"query":"<keyword>","folder":"all"}'
+   .venv/bin/python -m cs rpc emails.list_by_thread '{"thread_id":"<id>"}'
+   ```
+2. **Google Drive — SCOPED to THIS company's Shared Drive.** Drafts and
+   final documents live here. Use the cs service-account, and **scope the
+   search to the company's Shared Drive** — never the personal claude.ai
+   Drive connector (`mcp__claude_ai_Google_Drive__*`), which spans the
+   user's `@gmail.com` and OTHER companies and leaks them into results.
+   - `cs drive search "<text>"` — **full-text inside THIS project's Shared
+     Drive only** (mrcall-cs → `{{ drive_scope }}`; default scope = config `CS_DRIVE`). It
+     NEVER spans other drives unless you pass the explicit override `all`
+     (`cs drive search "<text>" all`, test-only). THIS is the scoped search
+     — use it instead of crawling folders one `ls` at a time.
+   - `cs drive ls [id]` / `cs drive cat <fileId>` — list a folder / read a
+     file's text once `search` has located it.
+   - `cs drive ls` (no arg) lists the Shared Drives the SA can see — `{{ drive_scope }}`
+     for MrCall, `UNIROMA`, … A different company's drive (e.g. CAFE124)
+     is NOT shared here and must NOT be searched from this project.
+3. **Full mailbox beyond the engine's ~60-day window** — `emails.search`
+   only indexes the engine's recent sync window (~60 days: `sync.run`
+   default `days_back=60`), so a year-old mail is simply NOT in it — a
+   null result there is the window, not absence. To reach older mail use
+   the claude.ai Gmail MCP (`mcp__claude_ai_Gmail__*`), but **every query
+   MUST be scoped to an authorized address**: add `from:` / `to:`
+   `{{ founder_sweep_account }}` or `{{ email_address }}`. NEVER run an unscoped
+   query — the connector spans the user's personal `@gmail.com` and other
+   companies; surfacing those is a privacy breach. No `@gmail.com`, no
+   other-company mail, ever.
+
+## Report
+
+Return what you found: the document/text (quote body text verbatim; for an
+attachment or Drive file give the filename + location / thread id + how to
+open it). If genuinely absent after a broad search across all three
+surfaces, say so and list the closest candidates (subjects + dates + ids)
+so the operator can decide — do not present a null search as proof the
+document doesn't exist.
