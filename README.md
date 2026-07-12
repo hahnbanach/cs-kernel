@@ -2,9 +2,14 @@
 
 **A ready-made customer-service operator for your company mailbox.**
 
-You install it, answer a few setup questions, open an AI coding session
-(Claude Code or OpenCode) in the folder it creates, and work in natural
-language: “load customer ACME”, “what’s open with them?”, “draft a reply…”.
+Typical path:
+
+1. **Interactive first** — open Claude Code or OpenCode in the project folder,
+   work in natural language (“load this customer”, “draft a reply…”).  
+2. **Memory fills up** — mrcall-desktop syncs mail and stores relationship
+   state; the more you use it, the less you re-explain.  
+3. **Optional automation** — when you trust the drafts, turn on a small
+   cron tick that prepares the next batch for you (still draft-first by default).
 
 Under the hood it talks to **[mrcall-desktop](https://github.com/hahnbanach/mrcall-desktop)**
 (the engine that syncs mail, keeps memory, and can draft/send). This package
@@ -20,6 +25,7 @@ You need a mrcall-desktop profile for the mailbox you want to operate.
 1. A small project folder (e.g. `acme-cs/`) configured for **your** company  
 2. Skills the AI can run: load a customer, triage mail, advance campaigns, …  
 3. Safety defaults: **draft first**, review before anything is sent  
+4. An optional **cron wrapper** so the same operator can tick unattended  
 
 Voice and product policy live in the engine profile, not in this repo.
 
@@ -135,14 +141,82 @@ the product surface; the CLI is plumbing the AI (and you, if you want) can call.
 ```text
 You  →  Claude / OpenCode (in acme-cs/)  →  skills  →  cs CLI  →  mrcall-desktop
                                                               →  Gmail (when needed)
+         (later) cron → same /cs-operator skill, draft-only by default
 ```
 
 | You care about | What happens |
 |---|---|
 | Customer context | Skill loads dossier files + **engine memory** |
+| Memory over time | Engine keeps relationships as mail is synced and you work |
 | Replies | Drafts prepared for review; send is gated |
 | Campaigns | Templates/packs advanced as drafts unless you opt into send mode |
 | “Stop everything” | Create pause file: `touch ~/.acme-cs/CS_PAUSE` |
+
+### How memory gets rich
+
+You don’t “train a model” by hand. You:
+
+- work interactively (customers, drafts, questions)  
+- let mrcall-desktop **sync the mailbox** into entities/memory/tasks  
+- optionally write durable facts the AI should keep (when you ask it to)  
+
+Next sessions — interactive or cron — start from that memory instead of a blank page.
+
+---
+
+## Optional: run it automatically (cron)
+
+When interactive use feels solid and drafts look right, you can let the
+operator prepare work on a schedule. **Default remains draft-only**: the tick
+triages inbound mail and advances campaigns into **drafts for your review**;
+it does not freely email customers unless you later change mode and permissions
+on purpose.
+
+### What’s already in the project
+
+After `cs init`, you have:
+
+- `bin/cs_operator_cron.sh` — one headless tick  
+- skill `/cs-operator` — triage + campaign-tick, then stop  
+- kill-switch: `touch ~/.acme-cs/CS_PAUSE` (any slug: `~/.<slug>-cs/CS_PAUSE`)  
+- log: `~/.<slug>-cs/cs_operator.log`  
+
+The wrapper re-denies send surfaces so a cron run cannot “accidentally” send.
+
+You need the **Claude Code CLI** available to cron (default path
+`~/.local/bin/claude`, overridable with `CLAUDE_BIN`).
+
+### Try one tick by hand
+
+```bash
+cd acme-cs
+source .venv/bin/activate
+./bin/cs_operator_cron.sh
+# then inspect Gmail Drafts / run your review skill in the TUI
+```
+
+### Install a schedule (when you’re ready)
+
+Example: every 2 hours during business hours, weekdays (adjust to taste):
+
+```bash
+crontab -e
+```
+
+```cron
+0 6-18/2 * * 2-5  /home/YOU/work/acme-cs/bin/cs_operator_cron.sh
+```
+
+Use the **absolute path** to your clone. Pause anytime with:
+
+```bash
+touch ~/.acme-cs/CS_PAUSE
+# resume:
+rm ~/.acme-cs/CS_PAUSE
+```
+
+Sending without review is a **later, deliberate** step (config + permissions),
+not what you get on day one.
 
 ---
 
