@@ -11,8 +11,14 @@ engine profile for the mailbox you want to operate (sync, memory, drafts,
 send tools). This package is the thin brain in front of that body — not a
 standalone mail server.
 
+Examples below use a local **venv** and **[uv](https://github.com/astral-sh/uv)**
+for installs. Install uv once if you need it: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+
 ```bash
-pip install "cs-kernel @ git+https://github.com/hahnbanach/cs-kernel@v0.2.0"
+# one-shot bootstrap (creates .venv, installs kernel, runs init)
+uv venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+uv pip install "cs-kernel @ git+https://github.com/hahnbanach/cs-kernel@v0.2.0"
 python -m cs init
 ```
 
@@ -35,7 +41,7 @@ Voice, signature, and product policy live in the engine profile
 
 Before `cs init` is useful you need:
 
-1. **Python 3.11+**
+1. **Python 3.11+** and **uv** (or another pip-compatible installer)
 2. A **mrcall-desktop** engine profile for your operator mailbox  
    (Firebase uid, WebSocket host, service-account access as required by your deploy)
 3. **Mailbox credentials** the operator will use (IMAP/SMTP — typically Gmail)
@@ -51,10 +57,13 @@ until the engine is up and secrets are filled.
 
 Suppose ACME wants an operator on `support@acme.example`.
 
-### 1. Install
+### 1. Create a venv and install the kernel
 
 ```bash
-pip install "cs-kernel @ git+https://github.com/hahnbanach/cs-kernel@v0.2.0"
+mkdir -p ~/work && cd ~/work
+uv venv .venv
+source .venv/bin/activate
+uv pip install "cs-kernel @ git+https://github.com/hahnbanach/cs-kernel@v0.2.0"
 ```
 
 ### 2. Create the clone
@@ -109,29 +118,33 @@ cp acme-cs/.env.example ~/.acme-cs/.env
 # CS_ACCOUNTS=support:<uid>, … and adapter keys if any
 ```
 
-### 5. Install the pin inside the clone and smoke-test
+### 5. Project venv, install the pin, smoke-test
+
+Use a **venv inside the clone** so the operator’s pin is isolated:
 
 ```bash
 cd acme-cs
-python -m venv .venv
-.venv/bin/pip install -r requirements.txt
-.venv/bin/python -m cs whoami    # needs engine + secrets
+uv venv .venv
+source .venv/bin/activate
+uv pip install -r requirements.txt
+python -m cs whoami              # needs engine + secrets
 ```
+
+All day-to-day commands below assume this venv is active
+(`source .venv/bin/activate`).
 
 ### 6. Day-to-day (what ACME can do)
 
-From `acme-cs/` with the venv active:
-
 | Command | Purpose |
 |---|---|
-| `cs whoami` | Verify engine session |
-| `cs plan` | Worklist from the producer (if configured) |
-| `cs dossier alice@client.com` | Thread + Gmail-Sent contact check + tasks + CRM |
-| `cs ask "…"` | Read-only question against engine memory |
-| `cs draft-reply "…"` | Compose a **draft only** (structurally cannot send) |
-| `cs campaign list` / `pending` / `queue-draft` | Advance campaigns as drafts |
-| `cs drive ls` / `search` / `cat` | Read-only Drive (scoped in the manifest) |
-| `cs update` | Re-apply newer kernel templates when you upgrade |
+| `python -m cs whoami` | Verify engine session |
+| `python -m cs plan` | Worklist from the producer (if configured) |
+| `python -m cs dossier alice@client.com` | Thread + Gmail-Sent contact check + tasks + CRM |
+| `python -m cs ask "…"` | Read-only question against engine memory |
+| `python -m cs draft-reply "…"` | Compose a **draft only** (structurally cannot send) |
+| `python -m cs campaign list` / `pending` / `queue-draft` | Advance campaigns as drafts |
+| `python -m cs drive ls` / `search` / `cat` | Read-only Drive (scoped in the manifest) |
+| `python -m cs update` | Re-apply newer kernel templates when you upgrade |
 
 **Sending mail** is gated on purpose:
 
@@ -147,9 +160,11 @@ default.
 ### 7. Upgrade later
 
 ```bash
-# bump kernel pin in requirements.txt / manifest [repo].kernel_version
-.venv/bin/pip install -r requirements.txt
-python -m cs update    # merge template changes; asks if you edited files
+cd acme-cs
+source .venv/bin/activate
+# bump the pin in requirements.txt / manifest [repo].kernel_version if needed
+uv pip install -r requirements.txt
+python -m cs update              # merge template changes; asks if you edited files
 ```
 
 ---
@@ -186,7 +201,12 @@ Not knobs you can “turn off by mistake” in the manifest:
 
 - Install **tags only**: `@v0.2.0`, not a floating branch.  
 - See [CHANGELOG.md](CHANGELOG.md).  
-- Develop with `pip install -e /path/to/cs-kernel` against a local checkout.
+- Develop with a local checkout:
+
+```bash
+uv venv .venv && source .venv/bin/activate
+uv pip install -e /path/to/cs-kernel
+```
 
 ---
 
@@ -198,6 +218,7 @@ You still need engine access, credentials, and human review in draft mode.
 **Current release:** `v0.2.0`
 
 ```bash
-pip install "cs-kernel @ git+https://github.com/hahnbanach/cs-kernel@v0.2.0"
+uv venv .venv && source .venv/bin/activate
+uv pip install "cs-kernel @ git+https://github.com/hahnbanach/cs-kernel@v0.2.0"
 python -m cs init
 ```
