@@ -4,6 +4,8 @@ Module for initializing a new company clone from templates.
 import argparse
 import json
 import os
+import re
+import sys
 from pathlib import Path
 import hashlib
 from datetime import datetime
@@ -13,20 +15,24 @@ def validate_slug(slug: str) -> bool:
     """Validate slug is lowercase alphanumeric with hyphens only."""
     return bool(re.match(r"^[a-z0-9-]+$", slug))
 
-def prompt_input(prompt: str, default: str = "") -> str:
-    """Prompt user for input with optional default."""
+def prompt_input(prompt: str, default: str | None = None) -> str:
+    """Prompt user for input. `default=None` means the field is required
+    (blank input re-prompts); any other value — including "" — is returned
+    as-is on blank input, so callers pass `default=""` for a field that may
+    be legitimately left empty."""
     if default:
         prompt = f"{prompt} [{default}]: "
     else:
         prompt = f"{prompt}: "
-    
+
     while True:
         value = input(prompt).strip()
-        if not value and default:
-            return default
-        if value:
-            return value
-        print("Please provide a value.")
+        if not value:
+            if default is not None:
+                return default
+            print("Please provide a value.")
+            continue
+        return value
 
 def prompt_yes_no(prompt: str, default: bool = False) -> bool:
     """Prompt user for yes/no input."""
@@ -100,7 +106,7 @@ def collect_config() -> dict:
     default_uid = prompt_input(f"Default account UID for '{default_account}'")
     accounts = {default_account: default_uid}
     
-    additional = prompt_input("Additional accounts (comma-separated name:uid pairs, or empty)")
+    additional = prompt_input("Additional accounts (comma-separated name:uid pairs, or empty)", "")
     if additional:
         for pair in additional.split(","):
             pair = pair.strip()
@@ -138,7 +144,7 @@ def collect_config() -> dict:
     if config["crm_adapter"] == "shopify":
         shopify_config = {
             "api_version": prompt_input("Shopify API version", "2025-10"),
-            "env_prefix": prompt_input("Shopify environment prefix (optional)")
+            "env_prefix": prompt_input("Shopify environment prefix (optional)", "")
         }
         config["crm_shopify"] = shopify_config
     else:
@@ -163,11 +169,11 @@ def collect_config() -> dict:
         config["producer_mrcall_tracking"] = None
     
     # Campaign settings
-    config["excluded_campaign"] = prompt_input("Excluded campaign name (optional)")
+    config["excluded_campaign"] = prompt_input("Excluded campaign name (optional)", "")
     config["posture_note"] = prompt_input("Posture note (optional)", "")
     
     # Drive scope
-    config["drive_scope"] = prompt_input("Drive scope (optional)")
+    config["drive_scope"] = prompt_input("Drive scope (optional)", "")
     
     # SMS settings
     config["sms_enabled"] = prompt_yes_no("Enable SMS?", default=False)
@@ -232,7 +238,7 @@ def collect_config() -> dict:
     config["autonomous"] = prompt_yes_no("Autonomous mode?", default=False)
     
     # Platform env path
-    config["platform_env_path"] = prompt_input("Platform environment path (optional)")
+    config["platform_env_path"] = prompt_input("Platform environment path (optional)", "")
     
     # Firebase SA path
     config["firebase_sa_path"] = prompt_input("Firebase service account path", f"~/.{config['company_slug']}-cs/firebase-sa.json")
@@ -400,6 +406,4 @@ def cmd_init(argv=None) -> int:
     return 0
 
 if __name__ == "__main__":
-    import re
-    import sys
     sys.exit(cmd_init())

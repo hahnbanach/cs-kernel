@@ -67,12 +67,17 @@ uv pip install "cs-kernel @ git+https://github.com/hahnbanach/cs-kernel@v0.2.0"
 python -m cs init
 ```
 
-Answer the prompts (defaults are fine when unsure). For ACME you might enter:
+Answer the prompts (defaults are fine when unsure). It asks more than
+this table shows — IMAP/SMTP host and port, timezone, cron schedule,
+dedup/rate-limit knobs, and a few others — all with sensible defaults;
+here are the ones you actually need to think about. For ACME you might
+enter:
 
 | Question | Example |
 |---|---|
 | Company name | `ACME Corp` |
-| Display / From name | `ACME` |
+| Display name | `ACME` |
+| From name for emails | `ACME` |
 | Short slug | `acme` → state lives under `~/.acme-cs/` |
 | Operator email | `support@acme.example` |
 | Engine URL + owner uid | from your mrcall-desktop setup |
@@ -259,7 +264,7 @@ See [CHANGELOG.md](CHANGELOG.md) for what each release changes.
 
 ## License & status
 
-Public setup kit for operators that sit in front of **mrcall-desktop**.
+MIT. Public setup kit for operators that sit in front of **mrcall-desktop**.
 You still need engine access, credentials, and human review in draft mode.
 
 **Current release:** `v0.2.0`

@@ -146,7 +146,7 @@ class DriveClient:
         show up in the company drive: PDFs via ``pdftotext`` (poppler); **uploaded
         Office files** (``.xlsx`` / ``.docx`` — Office Open XML, i.e. zipped XML)
         via stdlib extraction (no openpyxl/python-docx needed). Without this the
-        P&L / nota-spese spreadsheets were unreadable. Non-PDF, non-Office,
+        P&L / expense spreadsheets were unreadable. Non-PDF, non-Office,
         non-Google-native files are still decoded as text.
         """
         mime = self.get_metadata(file_id).get("mimeType", "")
@@ -173,25 +173,25 @@ def _pdf_to_text(raw: bytes) -> str:
     """
     exe = shutil.which("pdftotext")
     if not exe:
-        return ("[cs.drive: PDF binario, testo non estratto — installa poppler-utils "
-                "(pdftotext) per leggerlo, oppure usa DriveClient.download()]")
+        return ("[cs.drive: binary PDF, text not extracted — install poppler-utils "
+                "(pdftotext) to read it, or use DriveClient.download()]")
     try:
         proc = subprocess.run([exe, "-layout", "-", "-"], input=raw,
                               capture_output=True, timeout=120)
     except Exception as e:  # pragma: no cover - subprocess/OS failure
-        return f"[cs.drive: estrazione PDF fallita ({e})]"
+        return f"[cs.drive: PDF extraction failed ({e})]"
     text = proc.stdout.decode("utf-8", errors="replace").strip()
     if text:
         return text
     err = proc.stderr.decode("utf-8", errors="replace").strip()
-    return ("[cs.drive: nessun testo estraibile dal PDF (probabile scansione o PDF "
-            f"cifrato/malformato){'; ' + err if err else ''}]")
+    return ("[cs.drive: no extractable text in the PDF (likely a scan or an "
+            f"encrypted/malformed PDF){'; ' + err if err else ''}]")
 
 
 # --- Office Open XML (.xlsx / .docx) text extraction, stdlib-only ------------
 # The SA has no openpyxl / python-docx; OOXML files are just zips of XML, so we
 # pull text straight from the parts. Without this, ``cat`` on an uploaded .xlsx
-# returned raw zip bytes (mojibake) — e.g. the P&L pluriennale was unreadable.
+# returned raw zip bytes (mojibake) — e.g. the multi-year P&L was unreadable.
 _SS = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
 _WP = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 _REL = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
@@ -243,7 +243,7 @@ def _xlsx_to_text(raw: bytes) -> str:
             for name, path in sheets:
                 if path not in names:
                     continue
-                out.append(f"# Foglio: {name}")
+                out.append(f"# Sheet: {name}")
                 for row in ET.fromstring(z.read(path)).iter(f"{_SS}row"):
                     cells: dict[int, str] = {}
                     for c in row.findall(f"{_SS}c"):
@@ -260,9 +260,9 @@ def _xlsx_to_text(raw: bytes) -> str:
                             cells[_col_index(c.get("r", ""))] = val.replace("\t", " ").replace("\n", " ")
                     if cells:
                         out.append("\t".join(cells.get(i, "") for i in range(max(cells) + 1)))
-            return "\n".join(out).strip() or "[cs.drive: .xlsx senza contenuto testuale]"
+            return "\n".join(out).strip() or "[cs.drive: .xlsx with no text content]"
     except Exception as e:  # pragma: no cover - malformed/edge file
-        return f"[cs.drive: estrazione .xlsx fallita ({e})]"
+        return f"[cs.drive: .xlsx extraction failed ({e})]"
 
 
 def _docx_to_text(raw: bytes) -> str:
@@ -271,7 +271,7 @@ def _docx_to_text(raw: bytes) -> str:
         with zipfile.ZipFile(io.BytesIO(raw)) as z:
             root = ET.fromstring(z.read("word/document.xml"))
     except Exception as e:  # pragma: no cover
-        return f"[cs.drive: estrazione .docx fallita ({e})]"
+        return f"[cs.drive: .docx extraction failed ({e})]"
     lines: list[str] = []
     for p in root.iter(f"{_WP}p"):
         parts: list[str] = []
@@ -281,7 +281,7 @@ def _docx_to_text(raw: bytes) -> str:
             elif node.tag == f"{_WP}tab":
                 parts.append("\t")
         lines.append("".join(parts))
-    return "\n".join(lines).strip() or "[cs.drive: .docx senza testo]"
+    return "\n".join(lines).strip() or "[cs.drive: .docx with no text]"
 
 
 def _fmt(f: dict) -> str:
@@ -304,7 +304,7 @@ def _resolve_drive(cli: DriveClient, selector: str) -> tuple[str | None, str]:
     """
     s = (selector or "").strip()
     if s.lower() in ("all", "*", "alldrives"):
-        return None, "TUTTI i Drive visibili al SA (override esplicito)"
+        return None, "ALL Drives visible to the SA (explicit override)"
     names = {d["id"]: d["name"] for d in cli.list_drives()}
     if s in names:                                    # exact id
         return s, f"Shared Drive '{names[s]}'"
@@ -315,15 +315,15 @@ def _resolve_drive(cli: DriveClient, selector: str) -> tuple[str | None, str]:
     hits = [i for i, n in names.items() if s.lower() in n.lower()]  # distinctive substring
     if len(hits) == 1:
         return hits[0], f"Shared Drive '{names[hits[0]]}'"
-    visible = ", ".join(sorted(names.values())) or "(nessuno condiviso col SA)"
+    visible = ", ".join(sorted(names.values())) or "(none shared with the SA)"
     if not hits:
         raise DriveError(
-            f"nessuno Shared Drive corrisponde a '{selector}'. "
-            f"Drive visibili al SA: {visible}. Usa nome/id esatto, o 'all' per cercare ovunque."
+            f"no Shared Drive matches '{selector}'. "
+            f"Drives visible to the SA: {visible}. Use the exact name/id, or 'all' to search everywhere."
         )
     raise DriveError(
-        f"'{selector}' e' ambiguo: corrisponde a {', '.join(names[i] for i in hits)}. "
-        f"Specifica il nome o l'id esatto."
+        f"'{selector}' is ambiguous: matches {', '.join(names[i] for i in hits)}. "
+        f"Specify the exact name or id."
     )
 
 
@@ -338,16 +338,16 @@ def main(argv: list[str]) -> int:
                 # if the arg is a Shared Drive id, scope to it; else treat as a folder
                 files = cli.list_folder(target, drive_id=target if target in drives else None)
                 if not files:
-                    print("(cartella vuota o non accessibile)")
+                    print("(empty folder or not accessible)")
                     return 0
-                print(f"{len(files)} file:")
+                print(f"{len(files)} files:")
                 for f in files:
                     print(_fmt(f))
                 return 0
             drives = cli.list_drives()
             shared = cli.list_shared()
             if not drives and not shared:
-                print("(niente) — condividi una cartella o un Drive condiviso con questo indirizzo (Visualizzatore):")
+                print("(nothing) — share a folder or a Shared Drive with this address (Viewer):")
                 print(f"  {cli.service_account_email}")
                 return 0
             if drives:
@@ -355,18 +355,18 @@ def main(argv: list[str]) -> int:
                 for d in drives:
                     print(f"  [drive] {d['id']}  {d['name']}")
             if shared:
-                print(f"File condivisi singolarmente ({len(shared)}):")
+                print(f"Individually shared files ({len(shared)}):")
                 for f in shared:
                     print(_fmt(f))
             return 0
         if cmd == "search":
             default_scope = cli.settings.drive_scope
             if len(argv) < 2 or not argv[1].strip():
-                print('uso: python -m cs.drive search "<testo full-text>" [driveId|nomeDrive|all]')
-                print(f"  default: cerca SOLO nello Shared Drive del progetto "
-                      f"(CS_DRIVE={default_scope or '<non impostato>'}).")
-                print("  passa un altro drive (id o nome) per cambiarlo, oppure 'all' per cercare in")
-                print("  TUTTI i Drive visibili al SA (override esplicito, es. test).")
+                print('usage: python -m cs.drive search "<full-text>" [driveId|driveName|all]')
+                print(f"  default: searches ONLY the project's Shared Drive "
+                      f"(CS_DRIVE={default_scope or '<not set>'}).")
+                print("  pass another drive (id or name) to change it, or 'all' to search across")
+                print("  ALL Drives visible to the SA (explicit override, e.g. testing).")
                 return 2
             text = argv[1]
             # explicit 2nd arg wins; otherwise pin to the project's Shared Drive (config).
@@ -375,10 +375,10 @@ def main(argv: list[str]) -> int:
                 # Scope message built from Settings — the per-company content
                 # here is config, not code (prog name + state dir + scope).
                 prog = cli.settings.prog_name or "cs"
-                print(f"ERRORE: nessuno Shared Drive di default ne' passato a mano — "
-                      f"{prog} resta confinato allo Shared Drive del progetto.", file=sys.stderr)
-                print(f"  imposta [drive].scope nel manifest.toml (o CS_DRIVE=<nome|id> in "
-                      f"{cli.settings.state_dir}/.env), o passa il drive (o 'all').",
+                print(f"ERROR: no default Shared Drive and none passed explicitly — "
+                      f"{prog} stays confined to the project's Shared Drive.", file=sys.stderr)
+                print(f"  set [drive].scope in manifest.toml (or CS_DRIVE=<name|id> in "
+                      f"{cli.settings.state_dir}/.env), or pass the drive (or 'all').",
                       file=sys.stderr)
                 return 2
             drive_id, scope = _resolve_drive(cli, selector)
@@ -386,22 +386,22 @@ def main(argv: list[str]) -> int:
             safe = text.replace("\\", "\\\\").replace("'", "\\'")
             files = cli.search(f"fullText contains '{safe}' and trashed=false", drive_id=drive_id)
             if not files:
-                print(f'(nessun file con "{text}" in {scope})')
+                print(f'(no file with "{text}" in {scope})')
                 return 0
-            print(f'{len(files)} file con "{text}" in {scope}:')
+            print(f'{len(files)} files with "{text}" in {scope}:')
             for f in files:
                 print(_fmt(f))
             return 0
         if cmd == "cat":
             if len(argv) < 2:
-                print("uso: python -m cs.drive cat <fileId>")
+                print("usage: python -m cs.drive cat <fileId>")
                 return 2
             print(cli.read_text(argv[1]))
             return 0
     except DriveError as e:
-        print(f"ERRORE: {e}", file=sys.stderr)
+        print(f"ERROR: {e}", file=sys.stderr)
         return 1
-    print('verbi: ls [folderId] | search "<testo>" [driveId|nomeDrive|all] | cat <fileId>')
+    print('verbs: ls [folderId] | search "<text>" [driveId|driveName|all] | cat <fileId>')
     return 2
 
 
