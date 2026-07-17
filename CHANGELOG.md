@@ -3,6 +3,38 @@
 Clones pin **tags only**. Every entry states which clones must re-collaudo
 and at which tier (design brief §6.6: static / +live read-only / full).
 
+## v0.2.3 — 2026-07-17
+
+### Added — `cs tasks create` / `cs tasks close` + triage reconciles the sweep against the engine ledger
+- **Why:** the deterministic `cs unanswered` sweep only sees support@'s own
+  Gmail Sent folder, so an item answered from a DIFFERENT mailbox (e.g. Mario's
+  personal `mario.alemi@` account) still gets re-flagged as unanswered
+  (incident 2026-07-17: Eva Fani). And when the engine's own detection never
+  turned a real inbound into a task, the operator had no write-path to record it.
+  We need a place to record "handled" / "seen" that the sweep can reconcile
+  against: the engine task ledger.
+- **What:** `cs tasks` becomes a verb-with-subactions. Bare `cs tasks` is
+  unchanged (the open-task list). New:
+  - `cs tasks create --email E --title T --event-id ID [--event-type email]
+    [--name N] [--phone P] [--urgency medium] [--reason R] [--suggested-action S]
+    [--thread-id TID] [--json]` → `tasks.create` (upsert on
+    owner_id+event_type+event_id — idempotent; `sources` carries the event id(s)
+    and, when given, `thread_id`).
+  - `cs tasks close TASK_ID [--note NOTE] [--json]` → `tasks.complete`.
+- **Triage skill:** `triage-support-mail` now reconciles each sweep survivor
+  against the ledger by `contact_email`: OPEN task → work it; CLOSED task →
+  SKIP (already handled, possibly elsewhere); NO task → `cs tasks create` so the
+  desktop sees it, then work it. `cs tasks --json` returns OPEN tasks only; the
+  operator passes `cs rpc tasks.list '{"include_completed":true}'` to see closed.
+- **Guard:** `tests/test_tasks_verbs.py` (gate 10 in `tests/run.sh`) pins the
+  RPC method + params for both subactions; the help tree gate now covers
+  `cs tasks create|close --help`.
+- **Engine dependency:** relies on the engine RPCs `tasks.create` /
+  `tasks.complete` (already live + tested on the support@ daemon).
+- **Clones must re-collaudo:** full tier — this adds verbs the triage skill now
+  depends on. Re-pin to `v0.2.3` and run one live `cs tasks create` +
+  `cs tasks close` round-trip against the clone's engine.
+
 ## v0.2.2 — 2026-07-16
 
 ### Added — deterministic `cs unanswered` sweep (replaces a flaky LLM discovery)

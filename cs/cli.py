@@ -10,7 +10,8 @@ Code is the brain. These verbs are thin transport:
   thread     all email threads exchanged with one address (both directions).
   contacted  did the operator write to this address in the last N days? (dedup)
   unanswered inbound still awaiting a human reply (deterministic, Sent-anchored).
-  tasks      open tasks on the engine.
+  tasks      open tasks on the engine; `tasks create` / `tasks close` write
+             the engine task ledger (upsert on event_id / complete).
   business   CRM lookup by email (adapter from manifest [crm]).
   dossier    thread + contacted + tasks + CRM for one address, in one shot.
   chat       one engine-chat turn (drafting surface; destructive tools
@@ -213,6 +214,59 @@ def cmd_tasks(args) -> int:
             f"{(t.get('title') or t.get('summary') or '')[:70]}"
         )
     print(f"total: {len(rows)}")
+    return 0
+
+
+def cmd_tasks_create(args) -> int:
+    # Write path into the ENGINE task ledger (tasks.create upserts on
+    # owner_id+event_type+event_id — idempotent, never duplicates). Used when
+    # the deterministic sweep (`cs unanswered`) catches an inbound the engine's
+    # own detection missed, so the desktop UI sees it too. `sources` carries the
+    # originating message id(s) (+ thread_id when known) so the task links back.
+    settings = config.load()
+    sources = {"emails": [args.event_id]}
+    if args.thread_id:
+        sources["thread_id"] = args.thread_id
+    params = {
+        "contact_email": args.email,
+        "title": args.title,
+        "event_id": args.event_id,
+        "event_type": args.event_type,
+        "action_required": True,
+        "sources": sources,
+        "urgency": args.urgency,
+    }
+    if args.name:
+        params["contact_name"] = args.name
+    if args.phone:
+        params["contact_phone"] = args.phone
+    if args.reason:
+        params["reason"] = args.reason
+    if args.suggested_action:
+        params["suggested_action"] = args.suggested_action
+    res = rpc.call_sync(settings, "tasks.create", params, timeout=120)
+    if args.json:
+        _print_json(res)
+    else:
+        res = res or {}
+        print(f"ok={res.get('ok')} task_id={res.get('task_id')} created={res.get('created')}")
+    return 0
+
+
+def cmd_tasks_close(args) -> int:
+    # Close (complete) a task in the engine ledger. The triage sweep treats a
+    # CLOSED task for a contact as "already handled" (possibly answered from a
+    # personal mailbox the Sent-anchored sweep can't see) and SKIPS it.
+    settings = config.load()
+    params = {"task_id": args.task_id}
+    if args.note:
+        params["note"] = args.note
+    res = rpc.call_sync(settings, "tasks.complete", params, timeout=120)
+    if args.json:
+        _print_json(res)
+    else:
+        res = res or {}
+        print(f"ok={res.get('ok')}")
     return 0
 
 
@@ -551,11 +605,36 @@ def main(argv=None) -> int:
     pun.add_argument("--json", action="store_true")
     pun.set_defaults(func=cmd_unanswered)
 
-    pk = sub.add_parser("tasks", help="engine tasks")
+    pk = sub.add_parser(
+        "tasks",
+        help="engine tasks: bare = open-task list; `create`/`close` write the ledger",
+    )
     pk.add_argument("--all", action="store_true", help="include completed")
     pk.add_argument("--limit", type=int, default=200)
     pk.add_argument("--json", action="store_true")
-    pk.set_defaults(func=cmd_tasks)
+    pk.set_defaults(func=cmd_tasks)  # bare `cs tasks` = the open-task list
+    ksub = pk.add_subparsers(dest="kaction")
+    kc = ksub.add_parser(
+        "create",
+        help="create a task the engine's detection missed (upsert on event_id — idempotent)",
+    )
+    kc.add_argument("--email", required=True, help="contact_email")
+    kc.add_argument("--title", required=True)
+    kc.add_argument("--event-id", required=True, help="idempotency key (e.g. the message-id)")
+    kc.add_argument("--event-type", default="email")
+    kc.add_argument("--name", help="contact_name")
+    kc.add_argument("--phone", help="contact_phone")
+    kc.add_argument("--urgency", default="medium")
+    kc.add_argument("--reason")
+    kc.add_argument("--suggested-action")
+    kc.add_argument("--thread-id", help="when given, added to sources as thread_id")
+    kc.add_argument("--json", action="store_true")
+    kc.set_defaults(func=cmd_tasks_create)
+    kx = ksub.add_parser("close", help="complete a task (tasks.complete)")
+    kx.add_argument("task_id")
+    kx.add_argument("--note", help="free-text closing reason (shown in the Closed view)")
+    kx.add_argument("--json", action="store_true")
+    kx.set_defaults(func=cmd_tasks_close)
 
     pb = sub.add_parser("business", help="CRM lookup by email (adapter from manifest [crm])")
     pb.add_argument("email")

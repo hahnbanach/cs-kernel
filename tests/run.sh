@@ -69,6 +69,11 @@ for cv in list pending reconcile mark send-draft queue-draft send-reminder send-
     echo "FAIL: cs campaign $cv --help"; tree_fail=1
   fi
 done
+for tv in create close; do
+  if ! (cd "$EMPTY" && "$VENV/bin/python" -m cs tasks "$tv" --help >>"$HELPLOG" 2>&1); then
+    echo "FAIL: cs tasks $tv --help"; tree_fail=1
+  fi
+done
 if [ "$tree_fail" -eq 0 ]; then echo "OK: $(grep -c '^usage:' "$HELPLOG") usage screens"; else FAIL=1; fi
 
 step "5. config + manifest resolution (sandbox HOME)"
@@ -91,6 +96,12 @@ step "9. unanswered open-logic (deterministic Sent-anchored sweep)"
 # 2026-07-16). This guards the pure open-logic: Sent-after-inbound closes a
 # sender, Sent-before does not, self/ignore excluded, oldest-first ordering.
 if "$VENV/bin/python" "$ROOT/tests/test_unanswered.py"; then echo "OK"; else echo "FAIL: unanswered open-logic regressed"; FAIL=1; fi
+
+step "10. tasks create/close verbs write the engine ledger (params guard)"
+# `cs tasks create` / `cs tasks close` are the triage sweep's reconciliation
+# write-path (create-on-miss, close-on-handled). This pins the RPC method +
+# params so a refactor can't drop sources / the event_id key / the close note.
+if "$VENV/bin/python" "$ROOT/tests/test_tasks_verbs.py"; then echo "OK"; else echo "FAIL: tasks create/close params regressed"; FAIL=1; fi
 
 echo
 if [ "$FAIL" -ne 0 ]; then echo "RESULT: FAIL"; exit 1; fi
