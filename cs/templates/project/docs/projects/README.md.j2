@@ -1,0 +1,36 @@
+# docs/projects/ — per-project working folders
+
+## Convention
+
+- **One folder per company/project** (`<name>/`): the `<name>.md` dossier, plans, working files, and related documents (proposals, PDF/DOCX, attachments).
+- Tracked in **git** (private repo `hahnbanach/{{ company_slug }}-cs`) for multi-machine sync. **No secrets/credentials** in these files.
+- **Project/customer codebases** (e.g. `~/acme-corp/`, owned by ACME) stay where they are, **outside** here: the dossier only needs to note that they exist / that we cloned them.
+
+## Key principle — the engine memory is the recall brain
+
+These files are **documents** (human-readable artifacts). The **source of truth for the operator's recall is the `mrcall-desktop` engine memory** — the always-on knowledge the agent draws on (`cs ask`, triage, compose).
+
+**Every fact must ALWAYS live ALSO in the engine memory, not only in these files.** A dossier not backed by memory is a dead artifact: the operator does not "know" it.
+
+- Information that arrives **by mail** is in memory **automatically**, via the update pipeline:
+  `cs --account <acct> rpc update.run` (syncs mail → memory/entities → tasks).
+- Information that does **not** come from mail (web research, a verbal debrief, decisions taken in a meeting) must be **brought explicitly into the engine memory** — via the engine's `create_memory` / `update_memory` tools (e.g. an interactive `cs chat --allow create_memory "…"` session), not left only in the dossier.
+  - **Note (known gap, Jul 2026):** the `cs chat` memory-write turn **persists the data engine-side but does NOT always return cleanly to the client** — it can hit `TimeoutError` after `update_memory` is approved (the turn never closes; seen at 600s and 1500s). So: treat it as **fire-and-forget** and **always verify with `cs ask`** that the fact actually landed in memory. The turn-never-closes is an engine-side defect to fix separately.
+
+In short: when you write/update a dossier here, make sure the same facts are (or end up) in the engine memory — the document is the readable copy, the memory is the brain.
+
+## Agent procedure — when Mario asks about a project/customer
+
+**Mandatory before answering** (even if a file already exists here). Do not just read `docs/projects/` — that is the goldfish trap.
+
+1. **Engine memory (first):**
+   ```bash
+   .venv/bin/python -m cs --account {{ founder_sweep_account if founder_sweep_enabled else email_address }} ask "<company / contacts / status / deadlines>"
+   .venv/bin/python -m cs ask "<same question>"   # if it might be on {{ accounts_default }}
+   ```
+   Many customer relationships (e.g. ACME) live on **`{{ founder_sweep_account if founder_sweep_enabled else email_address }}`**, not on `{{ accounts_default }}` (the autonomous loop's default). The names in `cs accounts` are **mail addresses** (never a bare first name — there can be several same-named mailboxes). If `{{ accounts_default }}` is empty and the dossier cites that mailbox, **query it**.
+2. **Key contacts:** `cs --account {{ founder_sweep_account if founder_sweep_enabled else email_address }} dossier <email>` (and {{ accounts_default }} if needed) — threads, open tasks, contacted, CRM.
+3. **Dossier files (second):** `docs/projects/<name>/` — the readable summary, proposals, analyses; compare against the engine and flag drift.
+4. **Answer** by combining the two layers; if the engine is fresher than the file, the file is stale (update it when you close the piece of work).
+
+Twin rule in `CLAUDE.md` §9 (loaded on every agent session).

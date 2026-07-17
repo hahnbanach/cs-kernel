@@ -245,6 +245,9 @@ def collect_config() -> dict:
     
     # Repo kernel version
     config["repo_kernel_version"] = prompt_input("Repository kernel version", "0.2.0")
+
+    # Repo docs shape (generic = mother/kernel-canonical; as-built = a stamped clone)
+    config["repo_docs_shape"] = prompt_input("Repository docs shape (generic, as-built)", "generic")
     
     # Show summary and confirm
     print("\n" + "=" * 60)

@@ -3,6 +3,38 @@
 Clones pin **tags only**. Every entry states which clones must re-collaudo
 and at which tier (design brief §6.6: static / +live read-only / full).
 
+## v0.3.0 — 2026-07-17
+
+### Added — the clone `CLAUDE.md` is now templated; `docs/customers` → `docs/projects`
+- **Why:** the clone `CLAUDE.md` was NOT templated — each clone hand-maintained
+  it, so it drifted from the kernel and a shared change had to be copied into
+  every clone by hand. And `docs/customers/` is really "per-project working
+  folders", not only customer dossiers.
+- **What:**
+  - New `cs/templates/project/CLAUDE.md.j2` — the clone operator manual is now
+    kernel-owned and parameterised (flat config keys). Company-specific
+    engine/API notes stay in the `company/claude-extra.md` slot (CLAUDE.md points
+    to it; NOT inlined — `cs update` renders with `from_string`/no loader, so
+    `{% include %}` is unavailable). Adds an **"Editing this clone —
+    template-owned vs clone-owned"** section.
+  - Template dir `docs/customers/` → `docs/projects/`; its README rewritten in
+    English; the `customer` skill + `docs/ARCHITECTURE.md.j2` reference
+    `docs/projects/`.
+  - New config key `repo_docs_shape` (`collect_config` prompt, default
+    `generic`) — distinguishes the mother clone from stamped children in the
+    intro line.
+  - Founder-sweep clause no longer appends a stray `@` (account names are full
+    mailbox addresses).
+- **Verified:** rendered `CLAUDE.md.j2` for BOTH reference clones with the real
+  `project_init` Jinja env (`StrictUndefined`) — zero errors;
+  `kernel + manifest(mrcall-cs)` is byte-equivalent to the mother's current
+  CLAUDE.md except the intended changes; `kernel + manifest(124)` renders 124's
+  values with no MrCall literals leaked.
+- **Clones must re-collaudo:** full tier — CLAUDE.md/docs become template-owned.
+  Adoption also needs each clone onboarded to template management
+  (`template-manifest.json`); neither reference clone has one yet, so
+  `cs update` cannot pull this until that follow-up lands.
+
 ## v0.2.3 — 2026-07-17
 
 ### Added — `cs tasks create` / `cs tasks close` + triage reconciles the sweep against the engine ledger

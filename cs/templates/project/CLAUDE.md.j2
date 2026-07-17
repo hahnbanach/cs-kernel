@@ -1,0 +1,200 @@
+# CLAUDE.md
+
+`{{ company_prog_name }}` — **a CLI front-end to the {{ email_address }} mrcall-desktop
+engine**, driven by Claude Code. The engine is the body: synced mail, entity
+memory, tasks, a writing voice trained on {{ email_address }}'s own sent
+mail, draft/send machinery. Claude Code is the brain. `cs` itself is thin
+transport + operator discipline.
+{% if repo_docs_shape == 'generic' %}
+Built to be **cloned for other companies** — the generic skeleton is the shared
+kernel; this is the mother clone.
+{% else %}
+The **{{ company_name }}** instance of the shared `cs-kernel` operator — stamped
+from the kernel and parameterised by this repo's `manifest.toml`.
+{% endif %}
+> **Source of truth: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — the
+> as-built config (stamped from `manifest.toml`) + the generic design. Read it
+> first; it wins over this file where they differ. The kernel charter
+> (`cs-kernel` `CLAUDE.md`) owns the machinery; this repo owns only the
+> declared variance.
+
+## Editing this clone — template-owned vs clone-owned
+
+This repo is a **stamped clone of `cs-kernel`**. The files below are **generated
+from the kernel template** (`cs-kernel/cs/templates/project/…`) and re-rendered by
+`cs update` — **edit them in the kernel template, never here**, or the change
+drifts and is overwritten on the next update:
+
+- `CLAUDE.md`, `README.md`, `docs/ARCHITECTURE.md`, `docs/projects/README.md`
+- `.claude/settings.json`, `.claude/skills/*`, `.claude/commands/*`
+- `bin/cs_operator_cron.sh`, `.env.example`, `.gitignore`, `requirements.txt`
+
+**Clone-owned — edit freely here:**
+
+- `manifest.toml` — the declared per-company variance (the ONE place values change)
+- `company/*.md` — prose slots: the *file* is templated, its **content is yours** to author for this company
+- `campaigns/<name>/` — campaign pack content
+- `docs/projects/<name>/` — per-project working folders (dossiers, plans, working files)
+- `.env`, `ext/`
+
+Rule of thumb: **behavior/shape → kernel template; company data → clone.** A change
+that would help every clone belongs in `cs-kernel` (rule of two + anti-fork charter).
+
+## 0. Operator profile
+
+Mario — founder. Wants this to run by itself **once trusted**: prepare the
+day's mail in the right voice, review, send, let replies return to
+{{ email_address }}. Course corrections are cheap; an unwanted blast — or a
+tone-deaf mail to someone we already talk to — is not.
+
+## 1. The engine daemon (the body)
+
+On `desktop.mrcall.ai` a dedicated user `mrcalld` runs one engine per profile
+as systemd units `zylch-server@<uid>`, each on a unix socket
+`/run/mrcalld/<uid>.sock`, fronted by Caddy at `{{ engine_ws_url }}/ws/<uid>`.
+The {{ email_address }} profile is `{{ engine_owner_uid }}`
+(config `CS_ENGINE_OWNER_UID`).
+
+Auth chain (headless): the cs service-account key signs a Firebase **custom
+token** locally (`cs/auth.py`), exchanged for an **ID token** (~1h, cached at
+`~/.{{ company_slug }}-cs/id_token.json`); the WS handshake carries it as
+`Authorization: Bearer` and the daemon gates `token.sub == OWNER_ID`. We never
+bypass that gate.
+
+**Outreach/reply policy lives in the profile, not this repo.** The declared-AI
+identity (if any), signature, recipient-language rule and the LLM-ism ban list
+are in `USER_NOTES` of the {{ email_address }} profile — read/edit via the
+engine's own `settings.get` / `settings.update` RPC, never via ad-hoc prompt
+files. **`USER_NOTES` is the biggest per-company artifact.**
+
+**RPC response shapes — the wrapper key is NOT uniform (wrong key → 0 rows):**
+`emails.search`/`list_inbox`/`list_sent` → `{"threads":[…]}`;
+`emails.list_by_thread` → `{"emails":[…]}` (note: `emails`, not `threads`);
+`tasks.list`/`campaign.list`/`campaign.contacts`/`drafts.list` → a bare array
+(other `campaign.*` writes — `create`/`add_contact`/`update_contact` — return
+a dict, not an array; don't assume the wildcard covers them, corrected
+2026-07-14 doc-critic pass);
+`settings.get` → `{"values":{…}}`; `account.who_am_i` → `{signed_in,uid,email,…}`.
+
+> Company-specific engine/API access (e.g. the mrcall-agent configurator) lives in [company/claude-extra.md](company/claude-extra.md).
+
+## 2. CLI verbs (thin transport)
+
+```bash
+.venv/bin/python -m cs <verb>
+```
+
+`plan` (producer worklist) · `whoami` · `rpc <method> ['{json}']` ·
+`thread <email>` · `contacted <email>` (dedup truth = Gmail Sent) · `tasks` ·
+`business <email>` ({% if crm_adapter == 'shopify' %}Shopify Admin GraphQL{% elif crm_adapter == 'starchat' %}StarChat CRM{% else %}CRM{% endif %}) ·
+`dossier <email>` (thread + contacted + tasks + CRM + verdict) ·
+`ask "<q>"` (read-only engine query) · `draft-reply "<msg>"` (**DRAFT only**,
+send-incapable) · `review` · `drive ls|search|cat` (read-only — no write
+method exists; only `search`'s default path is code-scoped to `{{ drive_scope }}`, `ls`/`cat`
+have no code-level scope filter and rely on what's actually shared with the
+service account, corrected 2026-07-14 doc-critic pass) ·
+`campaign list|pending|reconcile|mark|queue-draft|send-draft` ·
+`campaign packs|send-reminder|send-sms` (fixed-template lifecycle) ·
+`chat "<msg>" [--allow …]` (supervised SEND path — DENIED to the headless
+operator) · `accounts` · `cron install|uninstall|status` (manage the
+operator's own crontab entry) · `--account <name>`.
+
+## 3. Pipeline (one daily run)
+
+1. **Worklist** — `cs plan`{% if producer_adapter == 'none' %} (reply-only — no producer wired; empty worklist){% else %}: ingest the `{{ producer_adapter }}` producer, self-filter (`SELF_UIDS`/`SELF_EMAILS`), suppression{% endif %}.
+2. **Dossier — MANDATORY before any contact** — `cs dossier <email>`: threads,
+   recent-contact check, tasks, CRM. Dedup truth is Gmail's own Sent folder
+   (`cs contacted` via `cs/gmail_archive.py`), NOT the engine archive.
+3. **Decide**: thread exists → reply in it; prior relationship → informed
+   outreach; genuinely cold → cold template, flagged; contacted within
+   `DEDUP_DAYS` / suppressed / self → **stop**.
+4. **Draft via the engine** (`cs draft-reply` / `cs chat "componi …"`) — never
+   from scratch in cs.
+5. **Review** (desktop app or Gmail Drafts). 6. **Send** — only through the
+   engine's approval gate (`cs chat … --allow send_draft`), after review.
+7. **Replies** land in {{ email_address }}, re-ingested as tasks.
+
+## 4. Skills + commands
+
+Autonomous operator (`.claude/skills/`, cron `claude -p "/cs-operator"`):
+`/cs-operator` (bootstrap: CS_PAUSE → session → `/triage-support-mail` →
+`/campaign-tick`{% if founder_sweep_enabled %} → read-only `{{ founder_sweep_account }}` sweep{% endif %} → report → STOP),
+`/triage-support-mail` (inbound → grounded DRAFT), `/campaign-tick` (advance
+campaigns{% if excluded_campaign %}, EXCEPT `{{ excluded_campaign }}`{% endif %}). Interactive skills
+(`.claude/skills/`): `/customer <nome>` (load `docs/projects/<nome>/` +
+**engine memory** for that customer — mandatory before customer work),
+`/find-document`. Interactive commands (`.claude/commands/`, zero side
+effects): `/cs-review`, `/munchausen`, `/analyze-account <name>`.
+
+## 5. Safety (NEVER)
+
+- **NEVER write to anyone without their dossier** (thread + contacted + tasks + CRM).
+- **NEVER cold-mail an address with an existing thread** — reply in the thread.
+- **The headless/cron operator NEVER sends.** Sending needs a deliberate human
+  `CS_TRIAGE_MODE=send` + a relaxed permission set; the cron re-denies every
+  send surface in its wrapper (`bin/cs_operator_cron.sh --disallowed-tools`),
+  independent of `.claude/settings.json`. Two gated send paths: contextual →
+  the engine's approval-gated `send_draft`; fixed-template bulk → cs-owned SMTP
+  (`cs/send_mail.py`). Never compose an ad-hoc contextual send outside the engine.
+- **NEVER contact a `SELF_UID`/`SELF_EMAIL`** or a suppressed address.
+- **NEVER re-contact within `DEDUP_DAYS`** — `cs contacted` is the check.
+- **Respect `RATE_CAP`** sends/day — stop + log, don't partial-blast.
+- **Never run an engine on a stale profile copy** (`~mrcalld/.zylch/` is truth).
+- **Never auto-commit** — the operator reviews.
+
+## 6. Conventions
+
+- Config: `manifest.toml` (non-secret variance) + layered env
+  ({% if platform_env_path %}`{{ platform_env_path }}` → {% endif %}`~/.{{ company_slug }}-cs/.env` → repo `.env`, later wins). Secrets and
+  `SELF_*` never in the repo (`.env.example`).
+- Outreach copy rules live in the profile's `USER_NOTES`, not here.
+- Suppression + dedup ledger in SQLite `~/.{{ company_slug }}-cs/cs.db`; dedup truth is
+  Gmail's own Sent folder, not the engine archive.
+- Autonomy knobs: **`CS_TRIAGE_MODE`** (`draft`|`send`, default `{{ cs_triage_mode }}`),
+  **`CS_PAUSE`** file (`~/.{{ company_slug }}-cs/CS_PAUSE`) = global kill-switch,
+  `RATE_CAP` = {{ rate_cap }}/day. The cron stays draft-only via its wrapper.
+
+## 7. Rollout
+
+- **Phase 1 (now)** — operator-in-the-loop, `CS_TRIAGE_MODE=draft`: the cron
+  prepares drafts; the human reviews (`/cs-review` / Gmail Drafts) and approves
+  each send. Free-form auto-send is blocked by config AND permission.
+- **Phase 2** — flip to autonomous-send **deliberately**: design a
+  confidence+scope gate, then `CS_TRIAGE_MODE=send` + a widening of the headless
+  allow-list (the real trust boundary). See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## 8. Multi-account — analysing this project's other mailbox
+
+`cs accounts` lists the registry ({% for name, uid in accounts.items() %}`{{ name }}`{% if not loop.last %} · {% endif %}{% endfor %};
+`CS_ACCOUNTS` in `~/.{{ company_slug }}-cs/.env`). Account **names are mailbox addresses**
+(or unambiguous roles like `{{ accounts_default }}`) — never a bare first name. It holds
+**ONLY this project's own mail domain** — never another company's mailboxes or
+another project's uid. To analyse a non-default account, open a session and ask
+(*"analizza la casella <name>"*) or run **`/analyze-account <name>`** — read-only
+verbs with `--account <name>`, no drafts/sends/memory writes. The autonomous
+draft/triage loop always runs on the **default** account only
+(`{{ accounts_default }}`).
+
+## 9. Customer knowledge — engine memory first (do not be a goldfish)
+
+{% set nondefault_account = founder_sweep_account if founder_sweep_enabled else (accounts.keys() | reject('equalto', accounts_default) | first) %}
+When Mario asks about a **customer / prospect / integration** (or you need
+customer state to act), **load both layers before answering**:
+
+1. **Engine memory (primary, live)** — `cs ask "…"` on the account that owns
+   the relationship. Many customer threads live on **`{{ nondefault_account }}`**,
+   not on the default `{{ accounts_default }}@` operator box:
+   - `.venv/bin/python -m cs --account {{ nondefault_account }} ask "<customer / contatti / stato>"`
+   - also try default `cs ask "…"` if the relationship might be on {{ accounts_default }}@
+   - key contacts: `cs --account {{ nondefault_account }} dossier <email>` (and {{ accounts_default }}@ if needed)
+2. **Dossier files (secondary, human-readable)** — `docs/projects/<azienda>/`
+   (see [`docs/projects/README.md`](docs/projects/README.md)). These are
+   artefacts; **the engine memory is the recall brain**. A file-only answer is
+   incomplete.
+
+Do **not** answer from `docs/projects/` alone and claim "that's what we know."
+If the engine has nothing on `{{ accounts_default }}@` but the dossier cites
+`{{ nondefault_account }}` / a thread on that mailbox, query that account. After
+working a customer, keep engine memory and the dossier aligned (write path:
+mail sync, or supervised `cs chat --allow create_memory` — verify with
+`cs ask`).

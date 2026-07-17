@@ -1,18 +1,18 @@
 ---
 name: customer
-description: Load a customer/prospect into working context. Argument is the folder name under docs/customers/ (e.g. acme-corp, globex, initech). Reads the dossier files AND — mandatorily — loads the mrcall-desktop engine memory for that customer. Use when Mario says /customer <nome>, or when starting any work on a named customer. Does not send; memory writes only when the operator explicitly asks to persist a fact.
+description: Load a customer/prospect into working context. Argument is the folder name under docs/projects/ (e.g. acme-corp, globex, initech). Reads the dossier files AND — mandatorily — loads the mrcall-desktop engine memory for that customer. Use when Mario says /customer <nome>, or when starting any work on a named customer. Does not send; memory writes only when the operator explicitly asks to persist a fact.
 ---
 
 # customer — load a customer into context
 
-Argument: **`<nome>`** = directory name under `docs/customers/`
+Argument: **`<nome>`** = directory name under `docs/projects/`
 (e.g. `acme-corp`, `globex`, `initech`). Not a bare first name,
 not an email, not a display name — the **folder slug**.
 
 If `<nome>` is missing or the folder does not exist:
 
 ```bash
-ls docs/customers/
+ls docs/projects/
 ```
 
 List the available folders, ask which one (or stop if none match). Do **not**
@@ -27,8 +27,8 @@ All commands run from the repo root with `.venv/bin/python -m cs …`.
 
 ## Invariants (hold for the whole session on this customer)
 
-1. **Engine memory is primary.** Never answer from `docs/customers/` alone —
-   that is the goldfish trap (`docs/customers/README.md`, `CLAUDE.md` §9).
+1. **Engine memory is primary.** Never answer from `docs/projects/` alone —
+   that is the goldfish trap (`docs/projects/README.md`, `CLAUDE.md` §9).
 2. **Many customer relationships live on `{{ founder_sweep_account }}`**, not on
    the default `{{ email_address }}` operator box. Always query **both** accounts unless
    the dossier explicitly pins one. Account names in `cs accounts` are
@@ -39,7 +39,7 @@ All commands run from the repo root with `.venv/bin/python -m cs …`.
    explicitly asks *after* the load, and then only through the normal gated
    paths (`cs draft-reply` / `cs chat --allow send_draft`). Default = read +
    reason.
-5. **No secrets in dossier files.** Credentials stay out of `docs/customers/`.
+5. **No secrets in dossier files.** Credentials stay out of `docs/projects/`.
 6. **When you learn a non-mail fact** (meeting debrief, web research, decision)
    that should stick, **write it into engine memory** (step 5) — the file is
    not enough.
@@ -47,16 +47,16 @@ All commands run from the repo root with `.venv/bin/python -m cs …`.
 ## 0. Resolve the folder (silently)
 
 ```bash
-ls docs/customers/<nome>/
+ls docs/projects/<nome>/
 ```
 
-Expect at least `docs/customers/<nome>/<nome>.md` (the dossier). Related
+Expect at least `docs/projects/<nome>/<nome>.md` (the dossier). Related
 files (proposte, analisi, PDF/DOCX notes) live beside it. If the directory
-is missing → list `docs/customers/`, report available names, **STOP**.
+is missing → list `docs/projects/`, report available names, **STOP**.
 
 ## 1. Read the dossier files (secondary layer — orientation)
 
-Read **every** file under `docs/customers/<nome>/` (the main
+Read **every** file under `docs/projects/<nome>/` (the main
 `<nome>.md` and siblings). Extract, and keep in working memory:
 
 - **TL;DR / stato** (active? blocked? deadline?)
@@ -138,7 +138,7 @@ Use the account that owns the relationship (usually
 .venv/bin/python -m cs --account <acct> ask "Conferma: <fatto appena scritto>?"
 ```
 
-Do **not** leave a non-mail fact only in `docs/customers/`. When you update
+Do **not** leave a non-mail fact only in `docs/projects/`. When you update
 the dossier file, update engine memory in the same breath (or note the gap).
 
 Mail-sourced facts reach memory via the normal sync pipeline
@@ -176,8 +176,8 @@ re-reading the markdown. If Mario asks to update the dossier, write the file
 ## Quick reference — existing folders
 
 ```bash
-ls docs/customers/
+ls docs/projects/
 ```
 
 Convention: one folder per company, dossier = `<nome>/<nome>.md`, related
-docs beside it. See `docs/customers/README.md`.
+docs beside it. See `docs/projects/README.md`.
