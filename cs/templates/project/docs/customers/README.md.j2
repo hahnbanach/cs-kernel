@@ -4,7 +4,7 @@
 
 - **Una cartella per azienda** (`<azienda>/`), con il dossier `<azienda>.md` e i documenti correlati (proposte, PDF/DOCX, allegati).
 - Tracciata in **git** (repo privato `hahnbanach/{{ company_slug }}-cs`) per sync multi-macchina. **Niente segreti/credenziali** in questi file.
-- I **codebase dei clienti** (es. `~/hb/gencolor/`, che è di CNIT) restano dove sono, **fuori** da qui: nel dossier basta annotare che esistono / che li abbiamo scaricati.
+- I **codebase dei clienti** (es. `~/acme-corp/`, che è di ACME) restano dove sono, **fuori** da qui: nel dossier basta annotare che esistono / che li abbiamo scaricati.
 
 ## Principio chiave — la memoria dell'engine è la fonte di richiamo
 
@@ -29,7 +29,7 @@ limitarsi a leggere `docs/customers/` — è la trappola del pesce rosso.
    .venv/bin/python -m cs --account {{ founder_sweep_account if founder_sweep_enabled else email_address }} ask "<azienda / contatti / stato / scadenze>"
    .venv/bin/python -m cs ask "<stessa domanda>"   # se può essere su {{ accounts_default }}
    ```
-   Molte relazioni cliente (es. Gencolor/CNIT) vivono su **`{{ founder_sweep_account if founder_sweep_enabled else email_address }}`**,
+   Molte relazioni cliente (es. ACME) vivono su **`{{ founder_sweep_account if founder_sweep_enabled else email_address }}`**,
    non su `{{ accounts_default }}` (default del loop autonomo). I nomi in `cs accounts` sono
    **indirizzi mail** (mai un bare "mario" — ci sono più caselle omonime). Se
    `{{ accounts_default }}` è vuoto e il dossier cita quella casella, **queryala**.

@@ -1,12 +1,12 @@
 ---
 name: customer
-description: Load a customer/prospect into working context. Argument is the folder name under docs/customers/ (e.g. gencolor, tiscali, hippocrates-holding). Reads the dossier files AND — mandatorily — loads the mrcall-desktop engine memory for that customer. Use when Mario says /customer <nome>, or when starting any work on a named customer. Does not send; memory writes only when the operator explicitly asks to persist a fact.
+description: Load a customer/prospect into working context. Argument is the folder name under docs/customers/ (e.g. acme-corp, globex, initech). Reads the dossier files AND — mandatorily — loads the mrcall-desktop engine memory for that customer. Use when Mario says /customer <nome>, or when starting any work on a named customer. Does not send; memory writes only when the operator explicitly asks to persist a fact.
 ---
 
 # customer — load a customer into context
 
 Argument: **`<nome>`** = directory name under `docs/customers/`
-(e.g. `gencolor`, `tiscali`, `hippocrates-holding`). Not a bare first name,
+(e.g. `acme-corp`, `globex`, `initech`). Not a bare first name,
 not an email, not a display name — the **folder slug**.
 
 If `<nome>` is missing or the folder does not exist:
@@ -84,8 +84,8 @@ If `whoami` fails on an account (daemon down, wrong identity): note it and
 continue with the other — do not invent memory. If **both** fail → STOP with
 the one-line reason; a file-only answer is incomplete and you must say so.
 
-Tune the `ask` with names/emails from the dossier (e.g. "Gencolor CNIT Alcini",
-"Tiscali Tania Ventura") so the engine retrieves the right entities.
+Tune the `ask` with names/emails from the dossier (e.g. "Acme-Corp Jane Smith",
+"Globex John Doe") so the engine retrieves the right entities.
 
 Optional depth when the first `ask` is thin:
 
