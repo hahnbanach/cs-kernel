@@ -51,8 +51,8 @@ a *Drive file*. Do not assume which; search all three surfaces.
    - `cs drive ls [id]` / `cs drive cat <fileId>` — list a folder / read a
      file's text once `search` has located it.
    - `cs drive ls` (no arg) lists the Shared Drives the SA can see — `{{ drive_scope }}`
-     for MrCall, `UNIROMA`, … A different company's drive (e.g. CAFE124)
-     is NOT shared here and must NOT be searched from this project.
+     for {{ company_name }}, plus any others explicitly shared with it. A different
+     company's drive is NOT shared here and must NOT be searched from this project.
 3. **Full mailbox beyond the engine's ~60-day window** — `emails.search`
    only indexes the engine's recent sync window (~60 days: `sync.run`
    default `days_back=60`), so a year-old mail is simply NOT in it — a

@@ -183,6 +183,12 @@ class Settings(BaseSettings):
     # --- exclusions (comma-separated in env) ---
     self_uids: str = ""
     self_emails: str = ""
+    # System / no-reply senders to ignore in the `unanswered` sweep (notifications,
+    # transactional, internal tooling). NEVER hardcode company addresses in the
+    # kernel — the clone declares them in its own env/manifest (charter grep gate).
+    system_senders: str = Field(
+        default="", validation_alias=AliasChoices("CS_SYSTEM_SENDERS")
+    )
 
     # --- Google Drive scope (read-only operator Drive access, cs/drive.py).
     # `cs drive search` defaults to THIS company's Shared Drive ONLY; explicit
@@ -234,6 +240,10 @@ class Settings(BaseSettings):
     @property
     def self_email_set(self) -> set[str]:
         return {e.strip().lower() for e in self.self_emails.split(",") if e.strip()}
+
+    @property
+    def system_sender_set(self) -> set[str]:
+        return {e.strip().lower() for e in self.system_senders.split(",") if e.strip()}
 
     @property
     def account_map(self) -> dict:

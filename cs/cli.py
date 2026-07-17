@@ -9,6 +9,7 @@ Code is the brain. These verbs are thin transport:
   rpc        generic JSON-RPC call: cs rpc <method> ['{"json": "params"}'].
   thread     all email threads exchanged with one address (both directions).
   contacted  did the operator write to this address in the last N days? (dedup)
+  unanswered inbound still awaiting a human reply (deterministic, Sent-anchored).
   tasks      open tasks on the engine.
   business   CRM lookup by email (adapter from manifest [crm]).
   dossier    thread + contacted + tasks + CRM for one address, in one shot.
@@ -169,6 +170,29 @@ def cmd_contacted(args) -> int:
     for m in msgs:
         print(f"  {m['date']}: {m['subject']}")
     return 0 if msgs else 1
+
+
+def cmd_unanswered(args) -> int:
+    # DETERMINISTIC replacement for the flaky LLM discovery query. Enumerate
+    # recent inbound (Gmail All Mail, Date-header windowed) and subtract every
+    # sender we've since written to (Gmail Sent = dedup ground truth). No LLM in
+    # the discovery loop — see cs/unanswered.py. Over-inclusion of an
+    # autoresponder is acceptable; the skill filters with judgment downstream.
+    settings = config.load()
+    from . import unanswered as unanswered_mod
+
+    rows = unanswered_mod.open_threads(settings, days=args.days)
+    if args.json:
+        _print_json(rows)
+        return 0
+    if not rows:
+        print(f"no unanswered inbound in the last {args.days} days")
+        return 0
+    print(f"{'EMAIL':38} {'WAIT':>5}  SUBJECT")
+    for r in rows:
+        print(f"{r['email']:38.38} {r['days_waiting']:>4}d  {(r['subject'] or '')[:60]}")
+    print(f"\ntotal: {len(rows)} unanswered (oldest first)")
+    return 0
 
 
 def cmd_tasks(args) -> int:
@@ -380,7 +404,21 @@ def cmd_draft_reply(args) -> int:
     # Like `chat` but with NO `--allow` option: allow_tools is hardcoded empty,
     # so the engine denies send_draft whatever the message says. Structurally
     # incapable of sending — this is the verb the headless operator may run.
+    #
+    # CRITICAL: the engine's compose step auto-runs create_draft (non-destructive,
+    # so it is NOT gated by allow_tools) and stores the draft in the ENGINE draft
+    # store — which is NOT the operator's Gmail Drafts, the surface where review
+    # and sending actually happen. Without mirroring, the draft is invisible in
+    # Gmail and the operator (rightly) concludes "nothing was drafted". So we diff
+    # the engine draft store around the compose call and APPEND the freshly composed
+    # draft into Gmail Drafts via IMAP (same mechanism as `campaign queue-draft`).
+    # Guarded by tests/test_draft_reply.py + the run.sh grep gate — do NOT remove
+    # the append_draft call: that reintroduces the "draft not in Gmail" regression.
     settings = config.load()
+    from . import gmail_drafts
+
+    before = {d.get("id") for d in
+              (rpc.call_sync(settings, "drafts.list", {}, timeout=args.timeout) or [])}
     out = asyncio.run(rpc.chat(settings, args.message, allow_tools=set(), timeout=args.timeout))
     res = out["result"] or {}
     text = res.get("response") or res.get("text") or res
@@ -388,6 +426,31 @@ def cmd_draft_reply(args) -> int:
         _print_json(text)
     else:
         print(text)
+
+    after = rpc.call_sync(settings, "drafts.list", {}, timeout=args.timeout) or []
+    fresh = [d for d in after if d.get("id") not in before]
+    if not fresh:
+        # Engine asked a clarifying question / escalated instead of composing.
+        print("\n[gmail-drafts] engine composed no new draft — nothing to mirror.",
+              file=sys.stderr)
+        return 0
+    d = max(fresh, key=lambda x: x.get("created_at") or x.get("updated_at") or "")
+    to = ", ".join(d.get("to_addresses") or [])
+    if not to or not (d.get("body") or "").strip():
+        print("\n[gmail-drafts] ERROR: composed draft has no recipient/body; "
+              "NOT appended to Gmail Drafts.", file=sys.stderr)
+        return 1
+    folder = gmail_drafts.append_draft(
+        settings,
+        to=to,
+        subject=d.get("subject") or "",
+        body=d.get("body") or "",
+        in_reply_to=d.get("in_reply_to"),
+        references=d.get("references"),
+        cc=", ".join(d.get("cc_addresses") or []) or None,
+    )
+    print(f"\n[gmail-drafts] draft appended to Gmail Drafts ({folder}): "
+          f"{d.get('subject')} -> {to}")
     return 0
 
 
@@ -479,6 +542,14 @@ def main(argv=None) -> int:
     pc.add_argument("email")
     pc.add_argument("--days", type=int, default=30)
     pc.set_defaults(func=cmd_contacted)
+
+    pun = sub.add_parser(
+        "unanswered",
+        help="inbound still awaiting a human reply (deterministic, Gmail-Sent-anchored)",
+    )
+    pun.add_argument("--days", type=int, default=14)
+    pun.add_argument("--json", action="store_true")
+    pun.set_defaults(func=cmd_unanswered)
 
     pk = sub.add_parser("tasks", help="engine tasks")
     pk.add_argument("--all", action="store_true", help="include completed")

@@ -4,7 +4,7 @@ The SAME Firebase session (cs/auth.py mint for support@) authenticates
 against `mrcall-agent`, whose StarChat role for support@ spans
 businesses cross-owner. **Verified live 2026-06-11** on production:
 
-- Base: `https://zylch.mrcall.ai` (test realm: `https://zylch-test.mrcall.ai`)
+- Base: `https://agent.example.com` (test realm: `https://agent-test.example.com`)
 - Header: `Authorization: Bearer <id-token>` (the deployed dependency
   requires this exact header; the in-code `auth:` docstrings are stale)
 - Probes that returned 200: `GET /api/chat/sessions`,

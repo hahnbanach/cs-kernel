@@ -15,10 +15,48 @@ from __future__ import annotations
 import email
 from datetime import datetime, timedelta, timezone
 from email import policy
-from email.utils import parsedate_to_datetime
+from email.utils import getaddresses, parseaddr, parsedate_to_datetime
 
 from .config import Settings
 from .gmail_drafts import _imap
+
+
+def _parse_date(raw):
+    """Parse an RFC-2822 Date header to a tz-aware datetime (UTC if naive)."""
+    if not raw:
+        return None
+    try:
+        dt = parsedate_to_datetime(raw)
+    except (TypeError, ValueError):
+        return None
+    if dt is not None and dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _imap_since(dt: datetime) -> str:
+    """IMAP SEARCH SINCE token (DD-Mon-YYYY) for a datetime."""
+    return dt.strftime("%d-%b-%Y")
+
+
+def _fetch_headers(M, ids, chunk: int = 200):
+    """Batch BODY.PEEK header FETCH over a list of UID byte-strings, yielding
+    parsed email.message objects. One FETCH per `chunk` UIDs (not one per UID) —
+    the bulk path. Read-only (PEEK)."""
+    out = []
+    for i in range(0, len(ids), chunk):
+        batch = b",".join(ids[i : i + chunk])
+        typ, data = M.uid(
+            "FETCH",
+            batch,
+            "(BODY.PEEK[HEADER.FIELDS (DATE FROM TO CC SUBJECT MESSAGE-ID)])",
+        )
+        if typ != "OK" or not data:
+            continue
+        for part in data:
+            if isinstance(part, tuple) and part[1]:
+                out.append(email.message_from_bytes(part[1], policy=policy.default))
+    return out
 
 
 def _find_folder(M, flag: str, default: str) -> str:
@@ -146,6 +184,84 @@ def inbound_since(settings: Settings, addr: str, after=None) -> list[dict]:
             if after is not None and (dt is None or dt <= after):
                 continue
             out.append({"date": raw, "subject": h.get("Subject")})
+        return out
+    finally:
+        try:
+            M.logout()
+        except Exception:
+            pass
+
+
+def inbound_recent(settings: Settings, days: int) -> list[dict]:
+    """Every INBOUND message in All Mail whose Date HEADER is within the last
+    `days` — the deterministic candidate feed for the unanswered sweep.
+
+    The IMAP SEARCH is bounded by SINCE (cutoff - 3d margin) for efficiency, but
+    the precise window is enforced on the Date HEADER, never INTERNALDATE (the
+    engine sync re-touches INTERNALDATE and makes SINCE-only queries flip between
+    runs — same caveat as `sent_to`). Messages FROM the operator itself (i.e. our
+    own sends, which All Mail also holds) are dropped here. Read-only.
+
+    Each row: {email, name, date (tz-aware), subject, message_id}."""
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=days)
+    self_addr = (settings.email_address or "").strip().lower()
+    M = _imap(settings)
+    try:
+        allm = _find_folder(M, "\\all", "[Gmail]/All Mail")
+        M.select(f'"{allm}"', readonly=True)
+        typ, d = M.uid("SEARCH", None, "SINCE", _imap_since(cutoff - timedelta(days=3)))
+        ids = d[0].split() if d and d[0] else []
+        out = []
+        for h in _fetch_headers(M, ids):
+            dt = _parse_date(h.get("Date"))
+            if dt is None or dt < cutoff:
+                continue
+            name, addr = parseaddr(h.get("From") or "")
+            addr = (addr or "").strip().lower()
+            if not addr or addr == self_addr:
+                continue
+            out.append(
+                {
+                    "email": addr,
+                    "name": name or "",
+                    "date": dt,
+                    "subject": h.get("Subject") or "",
+                    "message_id": h.get("Message-ID") or "",
+                }
+            )
+        return out
+    finally:
+        try:
+            M.logout()
+        except Exception:
+            pass
+
+
+def sent_recent(settings: Settings, days: int) -> list[dict]:
+    """Every Sent message whose Date HEADER is within the last `days`. Same
+    Date-header windowing + SINCE margin as `inbound_recent`. Read-only.
+
+    Each row: {to (list of bare lowercased addresses from To+Cc), date}."""
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=days)
+    M = _imap(settings)
+    try:
+        sent = _find_folder(M, "\\sent", "[Gmail]/Sent Mail")
+        M.select(f'"{sent}"', readonly=True)
+        typ, d = M.uid("SEARCH", None, "SINCE", _imap_since(cutoff - timedelta(days=3)))
+        ids = d[0].split() if d and d[0] else []
+        out = []
+        for h in _fetch_headers(M, ids):
+            dt = _parse_date(h.get("Date"))
+            if dt is None or dt < cutoff:
+                continue
+            addrs = [
+                a.strip().lower()
+                for _, a in getaddresses([h.get("To") or "", h.get("Cc") or ""])
+                if a and a.strip()
+            ]
+            out.append({"to": addrs, "date": dt})
         return out
     finally:
         try:

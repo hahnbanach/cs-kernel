@@ -98,7 +98,7 @@ def collect_config() -> dict:
         config["smtp_port"] = 587
     
     # Engine settings
-    config["engine_ws_url"] = prompt_input("Engine WS URL", "wss://desktop.mrcall.ai")
+    config["engine_ws_url"] = prompt_input("Engine WS URL", "wss://desktop.example.com")
     config["engine_owner_uid"] = prompt_input("Engine owner UID")
     
     # Accounts

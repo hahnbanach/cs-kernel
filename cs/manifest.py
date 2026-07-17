@@ -104,6 +104,8 @@ class Knobs(_Table):
     timezone: str = "Europe/Rome"
     sms_hour: int = 18
     reminder_max: int = 3
+    system_senders: str = ""        # comma-separated no-reply/system addresses the
+                                    # `unanswered` sweep ignores (env CS_SYSTEM_SENDERS wins)
 
 
 class Sms(_Table):
@@ -217,6 +219,7 @@ def settings_overrides(m: Manifest) -> dict:
     put("timezone", m.knobs.timezone)
     put("sms_hour", m.knobs.sms_hour)
     put("reminder_max", m.knobs.reminder_max)
+    put("system_senders", m.knobs.system_senders)
 
     put("sms_enabled", m.sms.enabled)
     put("sms_proxy_base", m.sms.proxy_base)

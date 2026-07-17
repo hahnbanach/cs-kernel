@@ -33,22 +33,22 @@ The rule, absolute:
 Read it whole before acting.**
 
 This work is built on branch **`cs-operator`** in a git **worktree**
-(`/home/mal/hb/{{ company_slug }}-cs`, §7). **`main` is the frozen baseline** that
+(`~/{{ company_slug }}-cs`, §7). **`main` is the frozen baseline** that
 runs the live migration cron — do NOT develop there. The live migration is
 **left alone** on its own cron and is only a READ-ONLY test oracle here (§1).
 
 Audience: an **ultracode** session (xhigh reasoning + Workflow orchestration).
 Use workflows for parallel build+verify and adversarial testing (see §9).
 
-Author context date: 2026-06-16. Host: **`desktop.mrcall.ai`**, user **`mal`**.
+Author context date: 2026-06-16. Host: **`desktop.example.com`**, user **the operator user**.
 Timezone: Italy is **CEST = UTC+2** right now → Italian noon = **10:00 UTC**,
 18:00 Italy = **16:00 UTC**. ⚠️ From late October Italy = CET = UTC+1: new code
 computes Italian time via `zoneinfo("Europe/Rome")`, NEVER a hardcoded offset
 (§4 #11).
 
 **Worked example — read it:**
-[`case-study-centralix-vonage-cutover.md`](case-study-centralix-vonage-cutover.md)
-walks a real, completed operator action (the Centralix→Vonage migration +
+[`case-study-provider-migration-cutover.md`](case-study-provider-migration-cutover.md)
+walks a real, completed operator action (the Provider A→Provider B migration +
 Friday cutover) end to end: the reusable plan/apply/verify shape, the
 human-approval gate, and the expensive gotchas the generic operator MUST
 handle (two same-sized lists with different membership, an opt-out staged in
@@ -59,7 +59,7 @@ didn't surface). It is the concrete companion to this plan.
 
 ## 0. What {{ company_name }} IS (mental model — internalize this)
 
-`{{ company_name }}` (`/home/mal/hb/{{ company_slug }}-cs`, GitHub private `hahnbanach/{{ company_slug }}-cs`)
+`{{ company_name }}` (`~/{{ company_slug }}-cs`, GitHub private `hahnbanach/{{ company_slug }}-cs`)
 is a **CLI front-end / brain for the {{ accounts_default }} operator**. The
 **body is the mrcall-desktop engine** (a long-running daemon on this host);
 cs drives it. The engine holds months of synced mail, entity memory, a
@@ -136,7 +136,7 @@ Python cron; the new operator does **not** take it over.
   **`{{ engine_ws_url }}/ws/<uid>`**. JSON-RPC over WebSocket.
 - **Campaign** `{{ excluded_campaign }}` in the engine DB
   (`campaigns` / `campaign_contacts` tables). 39 businesses moving from
-  Centralix to Vonage. States: `replied`(confirmed)=3, `skipped`=1 (bebmrbrown —
+  Provider A to Provider B. States: `replied`(confirmed)=3, `skipped`=1 (bebmrbrown —
   excluded), `sent`=35 (awaiting confirmation; 2 are autoresponders). The
 cutover (DB `business.service_number` flip) is **Friday 2026-06-19**,
 pre-authorized, §8 — a SEPARATE task.
@@ -151,7 +151,7 @@ pre-authorized, §8 — a SEPARATE task.
   `sent` rather than re-mailing.
 - **Legacy migration cron** (user `mal` crontab, tag `# {{ company_slug }}-cs-migration`):
   ```
-  */30 6-17 * * 2-5  /home/mal/hb/{{ company_slug }}-cs/cs/scripts/migration_cron.sh  >> ~/.{{ company_slug }}-cs/migration_loop.log 2>&1
+  */30 6-17 * * 2-5  ~/{{ company_slug }}-cs/cs/scripts/migration_cron.sh  >> ~/.{{ company_slug }}-cs/migration_loop.log 2>&1
   ```
   Runs `python -m cs.migration_loop run --commit` from **`main`'s working tree**.
   **It STAYS until the migration is done** (post-Friday, no contacts left to
@@ -179,7 +179,7 @@ cron  →  claude -p "/cs-operator"   (headless, general, every 2h, Opus-class)
 ```
 
 - **General, not migration-specific.** The cron/bootstrap/skills know nothing
-  about "Centralix→Vonage". `/campaign-tick` reads the `campaigns` table and
+  about "Provider A→Provider B". `/campaign-tick` reads the `campaigns` table and
   applies each campaign's rules. ⚠️ **Honesty about "general":** the follow-up
   rules are still campaign-shaped. Make them a **policy JSON on the `campaigns`
   row** — `reminder_after_hour`, `sms_after_hour`, `reminder_cap`,
@@ -369,7 +369,7 @@ each, READ the full body (`emails.list_by_thread`, not the snippet), decide:
    `campaign.contacts`), NOT a side-channel sqlite connection — the daemon's DB
    path resolution differs from a naive `ZYLCH_PROFILE_DIR` one-liner (false
    negatives this session).
-7. **SMS:** `POST https://zylch.mrcall.ai/api/desktop/sms/send`, headers
+7. **SMS:** `POST {{ sms_proxy_base }}/api/desktop/sms/send`, headers
    `auth: <{{ accounts_default }} id_token>`, json `{phone_number, message}`. Sender is
    **MrCall** ({{ email_address }}'s `SMS_FROM`), billed to CALLCREDIT. Verified HTTP 200
    live (1 segment ≈ 10 credits). DEPLOYED and working as of 2026-06-16.
@@ -399,12 +399,12 @@ each, READ the full body (`emails.list_by_thread`, not the snippet), decide:
 
 ## 5. HEADLESS CRON + PERMISSIONS
 
-- CLI: `claude` at `/home/mal/.local/bin/claude` (v2.1.170), authed for `mal`.
+- CLI: `claude` at `~/.local/bin/claude` (v2.1.170), authed for the operator user.
   Headless: `claude -p "/cs-operator"` (prints, exits).
 - **Permissions:** headless cannot answer prompts. Create a scoped
   `~/.claude/settings.json` (or project `.claude/settings.local.json`) allow-list
   covering exactly the Bash the skills run — the cs venv python
-  (`/home/mal/hb/{{ company_slug }}-cs/.venv/bin/python -m cs …`) and nothing destructive.
+  (`~/{{ company_slug }}-cs/.venv/bin/python -m cs …`) and nothing destructive.
   At `CS_TRIAGE_MODE=draft` the skills never pass `--allow send_email` for
   free-form, so the allow-list need NOT grant autonomous engine sends (by
 design). Verify a run neither halts on a prompt nor gets blanket powers.
@@ -418,7 +418,7 @@ design). Verify a run neither halts on a prompt nor gets blanket powers.
     `~/.{{ company_slug }}-cs/cs_operator.log` (IDs/actions only — #11).
 - **Cron line** — install **alongside** the legacy `# {{ company_slug }}-cs-migration` line
   (NOT a replacement; §1):
-  `0 6-18/2 * * 2-5  /home/mal/hb/{{ company_slug }}-cs/cs/scripts/cs_operator_cron.sh >> ~/.{{ company_slug }}-cs/cs_operator.log 2>&1  # cs-operator`
+  `0 6-18/2 * * 2-5  ~/{{ company_slug }}-cs/cs/scripts/cs_operator_cron.sh >> ~/.{{ company_slug }}-cs/cs_operator.log 2>&1  # cs-operator`
 - Keep `migration_cron.sh` running until the migration is done; only then retire
   it and remove the migration-campaign exclusion (§3b).
 
@@ -489,10 +489,10 @@ cutover. Current target: **38** (the 39 campaign contacts minus
 Source the target number from the **`service_number` table** (`WHERE
 businessid = <business_id> AND provider='Vonage'` → `.id` is the E.164), NOT
 from the strippable `business.variables.VONAGE_SERVICE_NUMBER` JSONB. Then
-re-verify 4 invariants (Centralix row blocked, Vonage row claimed,
+re-verify 4 invariants (Provider A row blocked, Provider B row claimed,
 service_number flipped, routing). Mario pre-authorized the batch; report after.
 Excluded: bebmrbrown (VoIP via Diego). Needs prod DB write (`mrcall-prod`, host
-`51.159.26.37:51494`; `~/hb/mrcall-tracking`'s reader is read-only — a write
+`<engine-host-ip>:51494`; `~/hb/mrcall-tracking`'s reader is read-only — a write
 path / Mario is required). Treat as its own gated job.
 
 ---
@@ -561,7 +561,7 @@ path / Mario is required). Treat as its own gated job.
   fixed-template bulk/day. §0.5 is the contract.
 
 **First action for the executing session:** read this file fully, then
-`cd /home/mal/hb/{{ company_slug }}-cs-operator && .venv/bin/python -m cs whoami` to confirm
+`cd ~/{{ company_slug }}-cs-operator && .venv/bin/python -m cs whoami` to confirm
 the engine session is live (expect `signed_in:true, email:{{ email_address }}`),
 and `crontab -l` to see the `# {{ company_slug }}-cs-migration` line (which you KEEP). Then
 build §3 on `cs-operator`, test §6, and STOP at the §9 gates.

@@ -3,6 +3,88 @@
 Clones pin **tags only**. Every entry states which clones must re-collaudo
 and at which tier (design brief §6.6: static / +live read-only / full).
 
+## v0.2.2 — 2026-07-16
+
+### Added — deterministic `cs unanswered` sweep (replaces a flaky LLM discovery)
+- **Why:** the triage skill discovered "customer mail still needing a human
+  reply" by asking the engine LLM (`cs ask "elenca la posta … senza risposta"`).
+  That is NON-DETERMINISTIC — two runs of the same query returned different sets
+  and missed real unanswered customer mail 6–13 days old that had no engine task
+  (incident 2026-07-16). We need a sweep anchored to the Gmail Sent archive, no
+  LLM in the discovery loop.
+- **What:** new `cs unanswered [--days 14] [--json]`. Enumerates recent inbound
+  (Gmail All Mail, **Date-header** windowed — never INTERNALDATE, which the
+  engine sync re-touches and which made prior queries flip between runs) and
+  subtracts every sender we've since written to (Gmail Sent = the dedup ground
+  truth). A sender is OPEN iff no Sent message to them is dated after their last
+  inbound. Excludes self (`SELF_EMAILS` + operator address), the new
+  `CS_SYSTEM_SENDERS` ignore-list, and the `do_not_contact` suppression table.
+  Returns oldest-first. It does NOT classify intent / autoresponders — that
+  stays the LLM's job; over-inclusion is acceptable and filtered downstream.
+- **New code:** `cs/gmail_archive.py` bulk readers `inbound_recent` /
+  `sent_recent` (one IMAP session, batched header FETCH, read-only); pure,
+  unit-testable `cs/unanswered.compute_open` + IMAP-backed `open_threads`;
+  `cs unanswered` verb in `cs/cli.py`.
+- **New config:** `CS_SYSTEM_SENDERS` (comma-separated no-reply/system addresses
+  to ignore), layered env/manifest like the other knobs, default empty. The
+  clone declares its own system addresses in env/manifest — NEVER hardcoded in
+  the kernel (charter grep gate).
+- **Guard:** `tests/test_unanswered.py` (wired as gate 9 in `tests/run.sh`)
+  exercises the open-logic on synthetic dicts.
+- **Clones must re-collaudo:** full tier — this adds a verb the triage skill now
+  depends on. Re-pin to `v0.2.2`, set `CS_SYSTEM_SENDERS` for the clone, and run
+  one live `cs unanswered --days 14`, cross-checking a couple of hits against
+  `cs contacted <email>`.
+
+### Fixed — `cs init` crash, fake-optional prompts; `drive.py` i18n; license
+- `python -m cs init` raised `NameError: name 're' is not defined` on every
+  invocation — `re`/`sys` were imported only inside the `if __name__ ==
+  "__main__"` guard, which the real `cli.py` entry point never executes.
+  Moved both to top-level imports. Verified end-to-end in a clean venv: the
+  full init flow now completes and renders the project.
+- `prompt_input`'s `default=""` was overloaded to mean both "no default"
+  (required) and "optional, blank is fine" — five prompts labeled
+  `(optional)` / "or empty" actually rejected blank input and looped
+  forever. `default=None` is now the "required" sentinel; `default=""`
+  means what it says. Verified the same fields now accept blank input and
+  the flow completes.
+- Removed the stale `doc-startsession` / `doc-endsession` / `doc-intrasession`
+  command templates so new clones stop inheriting commands retired
+  kernel-wide (superseded by the globally-installed `mrcall-ai-kit`
+  `doc-start` / `doc-end`).
+- Translated `cs/drive.py`'s Italian CLI help/error strings to English.
+- Added the MIT `LICENSE` (was undeclared despite the "License & status"
+  README heading) and declared it in `README.md` + `pyproject.toml`.
+- `cs init`'s Engine WS URL default is now a generic placeholder instead of
+  `wss://desktop.mrcall.ai` (charter grep gate — this was the last company
+  literal in `cs/`; the gate is green again).
+- **Clones must re-collaudo:** static tier only — no behavior change on any
+  operator verb; `cs init` / `cs update` and `cs.drive` output text are the
+  only surfaces touched.
+
+## v0.2.1 — 2026-07-16
+
+### Fixed — `draft-reply` now lands in the operator's Gmail Drafts (was invisible)
+- **Root cause:** `cmd_draft_reply` only ran the engine compose. The engine's
+  `create_draft` is non-destructive, so it auto-executes even with the empty
+  `allow_tools`, storing the draft in the ENGINE draft store (visible via
+  `cs rpc drafts.list` / the desktop app) — but **never in the operator's Gmail
+  Drafts**, the surface where review and sending happen. The operator saw an
+  empty Gmail Drafts and concluded "nothing was drafted". Recurring bug: prior
+  fixes only touched an installed copy, never this source, so `pip install` /
+  re-pin wiped them every time.
+- **Fix:** `cmd_draft_reply` now diffs the engine draft store around the compose
+  call and APPENDs the freshly composed draft into Gmail Drafts via IMAP
+  (`gmail_drafts.append_draft`, the same mechanism as `campaign queue-draft`),
+  with the draft's real `to`/`subject`/`body`/`in_reply_to`/`references`. It
+  fails loud (rc=1) if the composed draft has no recipient/body, and is a no-op
+  mirror when the engine composed nothing (clarifying question / escalation).
+- **Guard:** new `tests/test_draft_reply.py` (wired as gate 8 in `tests/run.sh`)
+  fails the moment the Gmail-Drafts append is removed.
+- **Clones must re-collaudo:** full tier — this changes the Phase-1 review
+  surface. Re-pin to `v0.2.1` and re-run one live `draft-reply`, verifying the
+  draft appears in the operator's Gmail Drafts (not just `cs rpc drafts.list`).
+
 ## v0.2.0 — 2026-07-12
 
 ### Added — project template + `cs init` / `cs update`
@@ -14,6 +96,12 @@ and at which tier (design brief §6.6: static / +live read-only / full).
 - `cs update` — selective re-apply of template changes; asks on local
   modifications; same Jinja env as init (`trim_blocks`/`lstrip_blocks`).
 - Dependency: `jinja2>=3.1`. Package data ships templates with the wheel.
+
+### Added — `cs cron`
+- `cs cron install` / `uninstall` / `status` — manage the operator's crontab
+  entry directly from the CLI (`cs/cron.py`), instead of hand-editing crontab
+  per clone. (Documented 2026-07-14; shipped in the tagged v0.2.0 commit but
+  missing from this changelog until now.)
 
 ### Collaudo (this release)
 - StrictUndefined render of all 30 templates: 0 failures.

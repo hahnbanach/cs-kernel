@@ -23,7 +23,15 @@ FAIL=0
 step() { printf '\n== %s ==\n' "$*"; }
 
 step "1. grep gate: zero company literals in cs/"
-if grep -rEin --exclude-dir=__pycache__ 'mrcall\.ai|cafe124|124-cs|centralix|/home/mal|CAFE124|\bHB\b' cs/; then
+# Company / customer / product names — case-insensitive (catches CAFE124, Centralix, …).
+CI_HITS="$(grep -rEin --exclude-dir=__pycache__ 'mrcall\.ai|cafe124|124-cs|centralix|/home/mal' cs/ || true)"
+# The 'HB' shared-drive literal is UPPERCASE — match it case-SENSITIVELY so the gate
+# does not false-positive on the lowercase 'hb' path segment (e.g. ~/hb/…), which is
+# a filesystem path, not the drive token.
+CS_HITS="$(grep -rEn --exclude-dir=__pycache__ '\bHB\b' cs/ || true)"
+if [ -n "$CI_HITS$CS_HITS" ]; then
+  [ -n "$CI_HITS" ] && printf '%s\n' "$CI_HITS"
+  [ -n "$CS_HITS" ] && printf '%s\n' "$CS_HITS"
   echo "FAIL: company literals found in the kernel package"; FAIL=1
 else
   echo "OK"
@@ -51,7 +59,7 @@ fi
 step "4. full --help tree (every verb / sub-verb)"
 HELPLOG="$TMP/help_tree.txt"
 tree_fail=0
-for v in plan whoami rpc thread contacted tasks business dossier ask draft-reply review drive accounts chat campaign; do
+for v in plan whoami rpc thread contacted unanswered tasks business dossier ask draft-reply review drive accounts chat campaign; do
   if ! (cd "$EMPTY" && "$VENV/bin/python" -m cs "$v" --help >>"$HELPLOG" 2>&1); then
     echo "FAIL: cs $v --help"; tree_fail=1
   fi
@@ -71,6 +79,18 @@ if "$VENV/bin/python" "$ROOT/tests/test_pack.py"; then echo "OK"; else FAIL=1; f
 
 step "7. golden pack equivalence (env-driven)"
 if "$VENV/bin/python" "$ROOT/tests/test_golden_pack.py"; then echo "OK"; else FAIL=1; fi
+
+step "8. draft-reply mirrors composed draft into Gmail Drafts (anti-regression)"
+# The engine composes into its own draft store, NOT the operator's Gmail Drafts.
+# cmd_draft_reply MUST APPEND the composed draft into Gmail Drafts or it is
+# invisible to the operator ("draft not in Gmail" — a recurring regression).
+if "$VENV/bin/python" "$ROOT/tests/test_draft_reply.py"; then echo "OK"; else echo "FAIL: draft-reply no longer appends to Gmail Drafts"; FAIL=1; fi
+
+step "9. unanswered open-logic (deterministic Sent-anchored sweep)"
+# `cs unanswered` replaced a NON-DETERMINISTIC LLM discovery query (incident
+# 2026-07-16). This guards the pure open-logic: Sent-after-inbound closes a
+# sender, Sent-before does not, self/ignore excluded, oldest-first ordering.
+if "$VENV/bin/python" "$ROOT/tests/test_unanswered.py"; then echo "OK"; else echo "FAIL: unanswered open-logic regressed"; FAIL=1; fi
 
 echo
 if [ "$FAIL" -ne 0 ]; then echo "RESULT: FAIL"; exit 1; fi

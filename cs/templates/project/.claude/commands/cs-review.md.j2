@@ -1,5 +1,5 @@
 ---
-description: Operator review — open a session and see what the headless cs-operator prepared and left for you. Lists drafts waiting in support@mrcall.ai's Gmail Drafts, open engine tasks (triage escalations), per-campaign flags, and the last tick. ZERO side effects; this is where YOU review and authorise — the operator only ever drafts.
+description: Operator review — open a session and see what the headless cs-operator prepared and left for you. Lists drafts waiting in {{ email_address }}'s Gmail Drafts, open engine tasks (triage escalations), per-campaign flags, and the last tick. ZERO side effects; this is where YOU review and authorise — the operator only ever drafts.
 ---
 
 # mrcall-cs — Operator Review
@@ -20,7 +20,7 @@ All commands run from the repo root with `.venv/bin/python -m cs …`.
 .venor/bin/python -m cs whoami
 ```
 
-Expect `signed_in: true`, `email: support@mrcall.ai`. If it fails, say so and
+Expect `signed_in: true`, `email: {{ email_address }}`. If it fails, say so and
 stop — the digest needs the engine.
 
 ## 2. The digest
@@ -29,7 +29,7 @@ stop — the digest needs the engine.
 .venv/bin/python -m cs review
 ```
 
-Read-only aggregation: drafts waiting in support@mrcall.ai's Gmail Drafts, open engine
+Read-only aggregation: drafts waiting in {{ email_address }}'s Gmail Drafts, open engine
 tasks (where triage escalations live), per-campaign state + contacts flagged
 escalated / engaged / declined, and the last cron tick from the log.
 
@@ -41,7 +41,7 @@ End by offering the next move:
 
 ```
 Da dove partiamo?
-- rivedere/inviare una bozza (sono nei Gmail Drafts di support@mrcall.ai);
+- rivedere/inviare una bozza (sono nei Gmail Drafts di {{ email_address }});
 - gestire un'escalation o un task aperto;
 - preparare una risposta a X (te la metto in bozza, la rivedi e invii tu).
 ```
