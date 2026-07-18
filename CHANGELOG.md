@@ -3,6 +3,22 @@
 Clones pin **tags only**. Every entry states which clones must re-collaudo
 and at which tier (design brief §6.6: static / +live read-only / full).
 
+## v0.3.1 — 2026-07-18
+
+### Fixed — hidden templates (`.claude/`, `.env.example`, `.gitignore`) were missing from the wheel
+- **Why:** `[tool.setuptools.package-data] cs = ["templates/project/**/*"]` — the
+  `**/*` glob does not match dot-prefixed files/dirs, so a wheel-installed kernel
+  shipped `templates/project/` **without** `.claude/` (skills/commands/settings),
+  `.env.example.j2`, `.gitignore.j2`. A clone stamped via `cs init` from the wheel
+  would be missing its skills/commands/settings + `.env.example`/`.gitignore`, and
+  `cs update` could not manage them (they aren't in the installed package).
+- **What:** add explicit `templates/project/.*` + `templates/project/.claude/**/*`
+  package-data patterns. Verified the built wheel now contains all 9 `.claude/*`
+  templates + the two root dotfiles.
+- **Clones must re-collaudo:** static tier (packaging-only; no code behavior change).
+  Re-pin to `v0.3.1`; to bring `.claude/` under `cs update`, re-run `cs update` (it
+  will now surface the `.claude` templates — reconcile skill content as with CLAUDE.md).
+
 ## v0.3.0 — 2026-07-17
 
 ### Added — the clone `CLAUDE.md` is now templated; `docs/customers` → `docs/projects`
