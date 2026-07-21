@@ -1,5 +1,22 @@
+.venv/
 __pycache__/
 *.pyc
-.venv/
+*.pyo
+
+# secrets & runtime state (PII) — live under ~/.{{ company_slug }}-cs/, never in the repo
 .env
-*.egg-info/
+.env.local
+*.db
+*.sqlite*
+# service-account keys / credentials — defensive: never let one slip into the repo
+firebase-sa.json
+*-sa.json
+*sa*.json
+*.pem
+*.key
+
+# generated dry-run queues / drafts / logs
+queue/
+drafts/
+*.log
+

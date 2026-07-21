@@ -2,7 +2,7 @@
 description: Operator review — open a session and see what the headless cs-operator prepared and left for you. Lists drafts waiting in {{ email_address }}'s Gmail Drafts, open engine tasks (triage escalations), per-campaign flags, and the last tick. ZERO side effects; this is where YOU review and authorise — the operator only ever drafts.
 ---
 
-# mrcall-cs — Operator Review
+# {{ company_prog_name }} — Operator Review
 
 The bootstrap you run when you sit down: it shows what the headless operator
 **prepared** (drafts) and **left for you** (escalations / open tasks). The
@@ -17,7 +17,7 @@ All commands run from the repo root with `.venv/bin/python -m cs …`.
 ## 1. Verify the engine session
 
 ```bash
-.venor/bin/python -m cs whoami
+.venv/bin/python -m cs whoami
 ```
 
 Expect `signed_in: true`, `email: {{ email_address }}`. If it fails, say so and
@@ -58,3 +58,4 @@ Da dove partiamo?
 - **Clearing an escalation** after you handle it →
   `cs campaign mark <id> --dossier '{"escalated": false}' --commit`.
 - You do not blast, you do not auto-send. One reviewed draft at a time.
+

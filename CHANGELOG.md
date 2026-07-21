@@ -3,6 +3,43 @@
 Clones pin **tags only**. Every entry states which clones must re-collaudo
 and at which tier (design brief §6.6: static / +live read-only / full).
 
+## v0.3.2 — 2026-07-21
+
+### Fixed — the hidden templates (`.claude/*`, `.env.example`, `.gitignore`) were broken stubs; re-derived from the reference clone
+- **Why:** v0.3.1 shipped the hidden templates into the wheel, but they were
+  stripped/corrupt stubs from the initial extraction:
+  - `.claude/settings.json.j2` rendered **invalid JSON** (a literal `n` where
+    `\n` belonged);
+  - `.gitignore.j2` **dropped the secret-ignore patterns** (`firebase-sa.json`,
+    `*-sa.json`, `*.pem`, `*.key`, `*.db`) — a real security risk if adopted;
+  - `.env.example.j2` concatenated two vars onto one line and dropped
+    `SELF_UIDS`/`SELF_EMAILS` + guidance comments;
+  - `.claude/commands/cs-review.md.j2` had a `.venv`→`.venor` typo + a hardcoded
+    title; `munchausen.md.j2` was a placeholder stub;
+  - `.claude/skills/triage-support-mail/SKILL.md.j2` had **lost §1 (the
+    deterministic `cs unanswered` Sent-anchored sweep) and §1b (engine
+    task-ledger reconcile)** + mangled headers;
+  - `.claude/skills/{customer,find-document}/SKILL.md.j2` rendered an **empty
+    `--account`** for founder_sweep-off clones (unconditional
+    `{{ founder_sweep_account }}`).
+- **What:** re-derived all 11 hidden templates from the reference clone
+  (`mrcall-cs`), parameterised by flat config keys + a `founder_sweep`-gated
+  `nondefault_account`. Verified: `render(kernel, manifest(mrcall-cs)) ≡ mrcall-cs`
+  **byte-for-byte** for 9/11 (customer/find-document intentionally keep neutral
+  example placeholders — see residuals), `settings.json` is valid JSON for both
+  clones, `.gitignore` carries every secret pattern, triage §1/§1b restored, and
+  both reference clones render with **zero StrictUndefined**. Independently
+  reviewed (adversarial pass): **GO**. Also fixed the `keep_trailing_newline=False`
+  gotcha (templates end with a double newline to emit one).
+- **Known residuals (non-blocking, tracked):** `customer`/`find-document` keep
+  neutral example placeholders — baking the mother clone's real customer names
+  into the shared template would leak them to every clone; `campaign-tick` still
+  emits the `Ciao MrCaller!` product-autoresponder example in a non-mother
+  render (needs a future `manifest` field for company autoresponder signatures).
+- **Clones must re-collaudo:** full tier — this makes `.claude/` safely
+  template-ownable. Re-pin to `v0.3.2`, `cs update` to adopt `.claude/`
+  (reconcile skill content as with CLAUDE.md), re-verify.
+
 ## v0.3.1 — 2026-07-18
 
 ### Fixed — hidden templates (`.claude/`, `.env.example`, `.gitignore`) were missing from the wheel

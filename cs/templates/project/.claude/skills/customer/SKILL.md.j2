@@ -2,6 +2,7 @@
 name: customer
 description: Load a customer/prospect into working context. Argument is the folder name under docs/projects/ (e.g. acme-corp, globex, initech). Reads the dossier files AND — mandatorily — loads the mrcall-desktop engine memory for that customer. Use when Mario says /customer <nome>, or when starting any work on a named customer. Does not send; memory writes only when the operator explicitly asks to persist a fact.
 ---
+{% set nondefault_account = founder_sweep_account if founder_sweep_enabled else (accounts.keys() | reject('equalto', accounts_default) | first) %}
 
 # customer — load a customer into context
 
@@ -29,8 +30,8 @@ All commands run from the repo root with `.venv/bin/python -m cs …`.
 
 1. **Engine memory is primary.** Never answer from `docs/projects/` alone —
    that is the goldfish trap (`docs/projects/README.md`, `CLAUDE.md` §9).
-2. **Many customer relationships live on `{{ founder_sweep_account }}`**, not on
-   the default `{{ email_address }}` operator box. Always query **both** accounts unless
+2. **Many customer relationships live on `{{ nondefault_account }}`**, not on
+   the default `{{ accounts_default }}@` operator box. Always query **both** accounts unless
    the dossier explicitly pins one. Account names in `cs accounts` are
    **mailbox addresses** (never bare `mario`).
 3. **No customer-visible action without a fresh dossier** on the relevant
@@ -61,7 +62,7 @@ Read **every** file under `docs/projects/<nome>/` (the main
 
 - **TL;DR / stato** (active? blocked? deadline?)
 - **Contatti chiave** (name → email) — needed for `cs dossier`
-- **Account engine** cited (often `{{ founder_sweep_account }}`)
+- **Account engine** cited (often `{{ nondefault_account }}`)
 - **Blocchi aperti / scadenze / prossimi passi**
 - **Provenienza** markers (`[mail]`, `[memoria]`, `[meeting]`, `[repo]`) so
   you know what is file-only vs already engine-backed
@@ -71,13 +72,13 @@ Do **not** treat this as the answer. It is the map for step 2–3.
 ## 2. Engine memory — MANDATORY (primary layer)
 
 Load what the engine actually knows. Run **both** accounts (default first if
-the dossier pins {{ email_address }}; otherwise start with {{ founder_sweep_account }}'s mailbox — most B2B
+the dossier pins {{ accounts_default }}@; otherwise start with mario's mailbox — most B2B
 relationships live there):
 
 ```bash
-.venv/bin/python -m cs --account {{ founder_sweep_account }} whoami
-.venv/bin/python -m cs --account {{ founder_sweep_account }} ask "<azienda>: stato relazione, contatti, scadenze, blocchi aperti, ultimi scambi rilevanti"
-.venv/bin/python -m cs ask "<stessa domanda>"   # {{ email_address }} default
+.venv/bin/python -m cs --account {{ nondefault_account }} whoami
+.venv/bin/python -m cs --account {{ nondefault_account }} ask "<azienda>: stato relazione, contatti, scadenze, blocchi aperti, ultimi scambi rilevanti"
+.venv/bin/python -m cs ask "<stessa domanda>"   # {{ accounts_default }}@ default
 ```
 
 If `whoami` fails on an account (daemon down, wrong identity): note it and
@@ -90,7 +91,7 @@ Tune the `ask` with names/emails from the dossier (e.g. "Acme-Corp Jane Smith",
 Optional depth when the first `ask` is thin:
 
 ```bash
-.venv/bin/python -m cs --account {{ founder_sweep_account }} rpc emails.search '{"query":"<azienda OR contatto>","folder":"all","limit":30}'
+.venv/bin/python -m cs --account {{ nondefault_account }} rpc emails.search '{"query":"<azienda OR contatto>","folder":"all","limit":30}'
 ```
 
 (Remember: `emails.search` → `{"threads":[…]}`; `emails.list_by_thread` →
@@ -102,8 +103,8 @@ For each **primary contact email** from the dossier (and any the engine just
 surfaced), run:
 
 ```bash
-.venv/bin/python -m cs --account {{ founder_sweep_account }} dossier <email>
-.venv/bin/python -m cs dossier <email>   # {{ email_address }} if the relationship might be there
+.venv/bin/python -m cs --account {{ nondefault_account }} dossier <email>
+.venv/bin/python -m cs dossier <email>   # {{ accounts_default }}@ if the relationship might be there
 ```
 
 This is thread + contacted (Gmail Sent truth) + tasks + CRM. Use it before any
@@ -130,7 +131,7 @@ operator will forget them next session:
 ```
 
 Use the account that owns the relationship (usually
-`{{ founder_sweep_account }}`). **Known gap (lug 2026):** the chat turn often
+`{{ nondefault_account }}`). **Known gap (lug 2026):** the chat turn often
 `TimeoutError`s after approving `update_memory` / `create_memory` — treat as
 **fire-and-forget**, then **always verify**:
 
@@ -181,3 +182,4 @@ ls docs/projects/
 
 Convention: one folder per company, dossier = `<nome>/<nome>.md`, related
 docs beside it. See `docs/projects/README.md`.
+

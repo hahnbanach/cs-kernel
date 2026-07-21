@@ -2,6 +2,7 @@
 name: find-document
 description: Locate a document, file, attachment, or a specific email when it's requested ("send me the usual R&D description", a report, a prior attachment) or when you need to find mail/files that aren't in the engine's recent sync window. Searches broadly across the engine, Google Drive, and the full mailbox. Read-only — finds and reports, never drafts or sends.
 ---
+{% set nondefault_account = founder_sweep_account if founder_sweep_enabled else (accounts.keys() | reject('equalto', accounts_default) | first) %}
 
 # find-document
 
@@ -44,7 +45,7 @@ a *Drive file*. Do not assume which; search all three surfaces.
    Drive connector (`mcp__claude_ai_Google_Drive__*`), which spans the
    user's `@gmail.com` and OTHER companies and leaks them into results.
    - `cs drive search "<text>"` — **full-text inside THIS project's Shared
-     Drive only** (mrcall-cs → `{{ drive_scope }}`; default scope = config `CS_DRIVE`). It
+     Drive only** ({{ company_prog_name }} → `{{ drive_scope }}`; default scope = config `CS_DRIVE`). It
      NEVER spans other drives unless you pass the explicit override `all`
      (`cs drive search "<text>" all`, test-only). THIS is the scoped search
      — use it instead of crawling folders one `ls` at a time.
@@ -59,7 +60,7 @@ a *Drive file*. Do not assume which; search all three surfaces.
    null result there is the window, not absence. To reach older mail use
    the claude.ai Gmail MCP (`mcp__claude_ai_Gmail__*`), but **every query
    MUST be scoped to an authorized address**: add `from:` / `to:`
-   `{{ founder_sweep_account }}` or `{{ email_address }}`. NEVER run an unscoped
+   `{{ nondefault_account }}` or `{{ email_address }}`. NEVER run an unscoped
    query — the connector spans the user's personal `@gmail.com` and other
    companies; surfacing those is a privacy breach. No `@gmail.com`, no
    other-company mail, ever.
@@ -72,3 +73,4 @@ open it). If genuinely absent after a broad search across all three
 surfaces, say so and list the closest candidates (subjects + dates + ids)
 so the operator can decide — do not present a null search as proof the
 document doesn't exist.
+

@@ -1,5 +1,6 @@
+{% set nondefault_account = founder_sweep_account if founder_sweep_enabled else (accounts.keys() | reject('equalto', accounts_default) | first) %}
 ---
-description: Read-only analysis of one of THIS project's engine mailboxes (see `cs accounts`). Takes an account name as argument (e.g. "mario"); if absent, list accounts and ask. ZERO side effects — no drafts, no sends, no memory writes, no commits. Reports what's in the inbox and what still needs attention.
+description: Read-only analysis of one of THIS project's engine mailboxes (see `cs accounts`). Takes an account name as argument (mailbox address, e.g. "{{ nondefault_account }}"); if absent, list accounts and ask. ZERO side effects — no drafts, no sends, no memory writes, no commits. Reports what's in the inbox and what still needs attention.
 ---
 
 # analyze-account — read-only mailbox analysis
@@ -9,10 +10,11 @@ what's there and what needs attention. **ZERO side effects**: use only the
 read-only verbs below — NEVER `draft-reply` / `chat` / `campaign send-draft` /
 `settings.update` / memory writes / commits.
 
-The argument is the account **name** (from `cs accounts`, e.g. `mario`). If none
-was given, run `cs accounts`, show the options, and ask which (or analyse the
-default). **Stay within THIS project** — `cs accounts` only lists this project's
-accounts; never try to reach another project's mailbox.
+The argument is the account **name** (from `cs accounts` — a mailbox address
+or role, e.g. `{{ nondefault_account }}` / `{{ accounts_default }}`; never a bare first name).
+If none was given, run `cs accounts`, show the options, and ask which (or
+analyse the default). **Stay within THIS project** — `cs accounts` only lists
+this project's accounts; never try to reach another project's mailbox.
 
 All commands run from the repo root: `.venv/bin/python -m cs --account <name> <verb>`.
 
@@ -53,3 +55,4 @@ Compact and skimmable: cosa è arrivato di rilevante, cosa è ancora aperto / da
 gestire, eventuali urgenze o cose da non perdere. **NIENTE bozze, NIENTE invii** —
 questa è solo analisi. Se poi vuoi agire su qualcosa è un passo separato ed
 esplicito; l'invio resta comunque fuori da questo comando.
+

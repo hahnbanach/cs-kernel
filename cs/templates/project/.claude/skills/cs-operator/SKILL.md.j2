@@ -1,9 +1,9 @@
 ---
 name: cs-operator
-description: mrcall-cs general operator bootstrap (headless, cron-driven). Identity is ALWAYS {{ email_address }}. Honours the CS_PAUSE kill-switch, verifies the engine session, then runs /triage-support-mail and /campaign-tick in order and stops. Safe to run as a no-op; nothing is sent autonomously while CS_TRIAGE_MODE=draft; never self-authorizes anything beyond the two sub-skills.
+description: {{ company_prog_name }} general operator bootstrap (headless, cron-driven). Identity is ALWAYS {{ email_address }}. Honours the CS_PAUSE kill-switch, verifies the engine session, then runs /triage-support-mail and /campaign-tick in order and stops. Safe to run as a no-op; nothing is sent autonomously while CS_TRIAGE_MODE=draft; never self-authorizes anything beyond the two sub-skills.
 ---
 
-# mrcall-cs — General Operator Bootstrap
+# {{ company_prog_name }} — General Operator Bootstrap
 
 The recurring entrypoint a headless cron runs as `claude -p "/cs-operator"`.
 Your only job is to run the day's recurring jobs **in order** and **stop**.
@@ -27,17 +27,17 @@ All commands run from the repo root with `.venv/bin/python -m cs …`.
   bootstrap itself sends nothing, drafts nothing, marks nothing. It only
   decides-to-run and delegates.
 - **Nothing is sent autonomously while `CS_TRIAGE_MODE=draft`** (the
-default). Free-form replies become engine drafts for Mario to review;
-the sub-skills enforce this, you do not override it.
+  default). Free-form replies become engine drafts for Mario to review;
+  the sub-skills enforce this, you do not override it.
 - **You do not self-authorize the out-of-scope actions in step 6.**
 
-## 1. Kill-switch — `~/.mrcall-cs/CS_PAUSE`
+## 1. Kill-switch — `~/.{{ company_slug }}-cs/CS_PAUSE`
 
 Double-check the global kill-switch (the cron wrapper checks it too; you
 re-check so an interactive or wrapper-bypassing run still honours it):
 
 ```bash
-test -f ~/.mrcall-cs/CS_PAUSE && echo PAUSED || echo active
+test -f ~/.{{ company_slug }}-cs/CS_PAUSE && echo PAUSED || echo active
 ```
 
 If it prints `PAUSED`: print exactly one line —
@@ -84,15 +84,44 @@ Run the campaign sub-skill:
 /campaign-tick
 ```
 
+{% if excluded_campaign %}
 It advances every **active** campaign **except** the
 `{{ excluded_campaign }}` campaign (a dedicated process owns it;
 `cs campaign pending` already drops it). It reconciles already-sent composed drafts against the
+{% else %}
+It advances every **active** campaign (`cs campaign pending` drops any
+excluded campaign named in the manifest; none for {{ company_display_name }} today). It reconciles already-sent composed drafts against the
+{% endif %}
 Sent archive (no re-mailing), handles replies, and — for any free-form
 reply — composes via the engine under `CS_TRIAGE_MODE` (draft now). It
 defaults to **escalate on uncertainty**. Capture what it reports
 (reconciled / reminders / SMS / acks drafted / escalations / nothing to
 do). Nothing-to-do is a valid outcome.
 
+{% if founder_sweep_enabled %}
+## 4b. Recurring job (READ-ONLY) — surface the founder inbox `{{ founder_sweep_account }}`
+
+This project has a second mailbox, `{{ founder_sweep_account }}`. Check it **read-only**
+each tick and just SURFACE what looks still open — **draft NOTHING**. Its engine
+profile has no trained voice / `USER_NOTES`, so composing there would be
+ungrounded; and by design the autonomous draft/triage loop stays on `{{ email_address }}`
+only (CLAUDE.md §9). This is the ONE step that reads another mailbox, and it is
+strictly read-only.
+
+```bash
+.venv/bin/python -m cs --account {{ founder_sweep_account }} tasks
+.venv/bin/python -m cs --account {{ founder_sweep_account }} ask "Elenca la posta a {{ founder_sweep_account }} degli ultimi 4 giorni che sembra ancora senza risposta umana. Per ciascuna: mittente, oggetto. Solo elenco, niente bozze."
+```
+
+Hold these rules:
+- **READ-ONLY.** Never `draft-reply`, `chat`, mark, or contact for `{{ founder_sweep_account }}`. You
+  only LIST what is open, for Mario to handle by hand.
+- The `ask` proposes candidates; use light judgment — don't surface a clearly
+  handled thread. When unsure, list it (surfacing is cheap and changes nothing).
+- Fold the result into the report (step 6) under the `{{ founder_sweep_account }}` line. Nothing open
+  is a valid outcome.
+
+{% endif %}
 ## 5. Do not exceed the sub-skills
 
 This run's authority ends at what steps 3–4 normally do. The following
@@ -102,11 +131,16 @@ performed**, even if a sub-skill surfaces them or it looks convenient:
 - flipping `CS_TRIAGE_MODE` from `draft` to `send` (the free-form
   trust boundary — a stop-and-ask gate);
 - any mass send, or any customer-visible send beyond what the sub-skills
-do under their own guardrails;
+  do under their own guardrails;
+{% if excluded_campaign %}
 - touching the migration campaign, retiring the legacy migration cron, or
   removing the migration-campaign exclusion;
 - installing / cutting over crontab lines;
 - the Friday `service_number` cutover.
+{% else %}
+- changing campaign exclusions (`EXCLUDED_CAMPAIGN`) or other operator config;
+- installing / cutting over crontab lines.
+{% endif %}
 
 If you believe one of these is needed, put it under "Escalations" in the
 report and STOP — do not do it.
@@ -123,6 +157,9 @@ cs-operator — <UTC timestamp>
 Engine:  {{ email_address }} ✓
 Triage:  <una riga: bozze N / escalate N / nulla da fare>
 Campagne: <una riga: riconciliati N / promemoria N / SMS N / ack-bozza N / nulla da fare>
+{% if founder_sweep_enabled %}
+{{ founder_sweep_account }}:   <una riga, SOLA SEGNALAZIONE (mai bozze): aperti N da gestire a mano / nulla>
+{% endif %}
 
 Escalations (need you):
 - <una riga per item; ometti la sezione se vuota>
@@ -136,8 +173,9 @@ Rules for the report:
   escalations, and any out-of-scope item from step 5 you declined to do.
   If there are none, omit the `Escalations` section entirely.
 - Report anomalies (an RPC error, an unexpected campaign state, a
-classification you were unsure about) as escalation lines — surface,
-not resolve.
+  classification you were unsure about) as escalation lines — surface,
+  don't resolve.
 
 After the report, **STOP**. Do not loop, do not re-run the sub-skills, do
 not start anything new. The next tick is the cron's job.
+

@@ -1,5 +1,6 @@
 {
-  "_comment": "Scoped permissions for the headless cs-operator tick (claude -p '/cs-operator'). HARD RULE: not one allowed command can send mail to a customer. Drafting goes through the structurally-send-incapable verbs `draft-reply` (engine, allow_tools always empty) and `campaign queue-draft` (Gmail Drafts only, never SMTP). The send-capable surfaces — `cs chat` (can carry --allow send_email) and `cs campaign send-draft` (send mode) — are DENIED here; going autonomous-send later is a deliberate widening of THIS file, the real trust boundary. Still verify with a supervised headless run that it neither halts nor over-grants before installing the cron.",n  "permissions": {
+  "_comment": "Scoped permissions for the headless cs-operator tick (claude -p '/cs-operator'). HARD RULE: not one allowed command can send mail to a customer. Drafting goes through the structurally-send-incapable verbs `draft-reply` (engine, allow_tools always empty) and `campaign queue-draft` (Gmail Drafts only, never SMTP). The send-capable surfaces — `cs chat` (can carry --allow send_email) and `cs campaign send-draft` (send mode) — are DENIED here; going autonomous-send later is a deliberate widening of THIS file, the real trust boundary. Still verify with a supervised headless run that it neither halts nor over-grants before installing the cron.",
+  "permissions": {
     "allow": [
       "Bash(.venv/bin/python -m cs whoami:*)",
       "Bash(.venv/bin/python -m cs tasks:*)",
@@ -24,8 +25,8 @@
     ],
     "deny": [
       "Bash(.venv/bin/python -m cs campaign send-draft:*)",
-      "Bash(rm:*)",
-      "Bash(git push:*)"
+      "Bash(rm:*)"
     ]
   }
 }
+

@@ -1,9 +1,9 @@
 ---
 name: campaign-tick
-description: Advance every active mrcall-cs campaign EXCEPT {{ excluded_campaign }} (a dedicated process owns it). Reconcile already-sent drafts, surface composed-draft outreach via the dedup-gated send-draft verb, classify new human replies from full thread bodies, and route free-form answers through the engine as drafts. Identity is always {{ email_address }}. Opus-driven for now (Mario's call, temporary). DEFAULT ON UNCERTAINTY = ESCALATE.
+description: Advance every active {{ company_prog_name }} campaign{% if excluded_campaign %} EXCEPT {{ excluded_campaign }} (a dedicated process owns it){% endif %}. Reconcile already-sent drafts, surface composed-draft outreach via the dedup-gated send-draft verb, classify new human replies from full thread bodies, and route free-form answers through the engine as drafts. Identity is always {{ email_address }}. Opus-driven for now (Mario's call, temporary). DEFAULT ON UNCERTAINTY = ESCALATE.
 ---
 
-# mrcall-cs — Campaign Tick
+# {{ company_prog_name }} — Campaign Tick
 
 Execute ALL steps below silently. **Do not address the operator until the
 tick is complete** — the next user-visible text is the final report in
@@ -39,9 +39,15 @@ All commands run from the repo root with `.venv/bin/python -m cs …`.
   (`dossier.classified_upto`). Do not re-reason the same message every run.
 - **NEVER invent facts.** Use only what is in the thread + engine memory. No
   prices, dates, promises, or capabilities the record does not contain.
+{% if excluded_campaign %}
 - **The {{ excluded_campaign }} campaign is EXCLUDED.** `{{ excluded_campaign }}` is
   owned by a dedicated process. `cs campaign pending` already drops it, but never
   act on it here regardless.
+{% else %}
+- **Excluded campaigns.** If a campaign name is set in the manifest
+  `[campaigns].excluded_campaign`, `cs campaign pending` drops it automatically.
+  None is excluded for {{ company_display_name }} today.
+{% endif %}
 - **Free-form replies go through the engine** via `cs draft-reply …`, never
   cs-SMTP, never `cs chat --allow` (denied to you by permission). It stores a
   DRAFT and CANNOT send — sending is the operator's job. You only ever draft.
@@ -52,13 +58,23 @@ All commands run from the repo root with `.venv/bin/python -m cs …`.
 .venv/bin/python -m cs campaign list
 ```
 
+{% if excluded_campaign %}
 Note the active campaigns + their per-state counts. The `{{ excluded_campaign }}`
 campaign is **out of scope** — a dedicated process owns it. Work every OTHER
 campaign.
+{% else %}
+Note the active campaigns + their per-state counts. Work every active
+campaign (`cs campaign pending` already drops any excluded campaign; none
+for {{ company_display_name }} today).
+{% endif %}
 
 ## 2. Pull each campaign's worklist
 
+{% if excluded_campaign %}
 For each campaign that is **not** `{{ excluded_campaign }}`:
+{% else %}
+For each active campaign:
+{% endif %}
 
 ```bash
 .venv/bin/python -m cs campaign pending --name <campaign-name>
@@ -67,8 +83,8 @@ For each campaign that is **not** `{{ excluded_campaign }}`:
 Returns JSON: `campaigns[].items[]`, each item carrying an `action`
 (`reconcile` / `send_draft` / `handle_reply`), a `contact_id`, the `email`,
 and (for replies) a `thread_id` anchor. The verb sends nothing and mutates
-nothing — it is the worklist only. The excluded campaign will not appear; if
-it somehow does, skip it.
+nothing — it is the worklist only.{% if excluded_campaign %} The excluded campaign will not appear; if
+it somehow does, skip it.{% else %} Any excluded campaign will not appear here.{% endif +%}
 
 ## 3. Work each item — branch on `action`
 
@@ -165,9 +181,9 @@ tight, complete sentences, no jargon, no emoji, no "fammi sapere". A compact
 table of what was done per contact, then an explicit escalation list:
 
 ```
-mrcall-cs — campaign tick
+{{ company_prog_name }} — campaign tick
 
-Campagne lavorate: <names> ({{ excluded_campaign }} esclusa)
+Campagne lavorate: <names>{% if excluded_campaign %} ({{ excluded_campaign }} esclusa){% endif +%}
 
 | campagna | contatto | azione | esito |
 |---|---|---|---|
@@ -183,3 +199,4 @@ The action column reflects what the verbs actually did (read their JSON
 results — e.g. a `send-draft` that flipped to `reconcile`, a draft already in
 Gmail). If "Escalations (need you):" is empty, write `nessuna`. Surface every
 contact you touched and every one you deliberately left.
+
