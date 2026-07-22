@@ -3,6 +3,21 @@
 Clones pin **tags only**. Every entry states which clones must re-collaudo
 and at which tier (design brief §6.6: static / +live read-only / full).
 
+## v0.3.4 — 2026-07-22
+
+### Fixed — `send-first` no longer dedups against the whole Sent archive
+- **Why:** v0.3.3 shipped `send-first` with the composed-draft `send-draft`
+  dedup (refuse if the address has ANY Sent thread within `dedup_days`). Wrong
+  for a fixed-template first notice: that targets a **curated contact list** (a
+  migration warning to KNOWN customers, many of whom have recent support threads
+  with us), so the archive dedup would silently skip legitimate targets.
+- **What:** `send-first` drops the `_sent_threads_to` check. Idempotency is now
+  the contact `state` alone — once the notice goes out the state flips to `sent`
+  and a re-run refuses; send-then-mark (the sub-second crash window is far less
+  bad than skipping a warning). No change to `send-draft`/`send-reminder`.
+- **Re-collaudo:** `mrcall-cs` (batch-2 campaign) — full (live send). Others: none
+  (only the just-added `send-first` changes).
+
 ## v0.3.3 — 2026-07-22
 
 ### Added — `campaign send-first`: the first-notice sender the fixed-template lifecycle was missing

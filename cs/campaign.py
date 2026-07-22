@@ -477,10 +477,17 @@ def send_first(settings, contact_id: str, *, commit: bool = False) -> dict:
     CS_TRIAGE_MODE=draft → push the rendered mail to the operator's Gmail Drafts
     for review (idempotent, never sends); =send → cs-SMTP send then mark 'sent'.
 
-    Gates: pack required (loud refusal), contact NOT already 'sent', dedup
-    against the Sent archive FIRST (never re-mail), CS_PAUSE, RATE_CAP (send
-    path). The Sent-archive dedup is the double-send backstop (a crash after the
-    send is caught next run as 'already in Sent'), so send-then-mark is safe."""
+    Gates: pack required (loud refusal), contact NOT already `sent` (the
+    idempotency guard — once the notice goes out the state flips to `sent` and a
+    re-run refuses), CS_PAUSE, RATE_CAP (send path).
+
+    Unlike composed-draft `send_draft`, this does NOT dedup against the whole
+    Sent archive: a fixed-template first notice is a deliberate action to a
+    curated contact list (a migration warning to KNOWN customers), so unrelated
+    recent Sent history with the address must not silently skip a legitimate
+    target. Idempotency is the contact `state`, send-then-mark (the crash window
+    between SMTP send and the state flip is sub-second and, for a one-time
+    notice, a rare duplicate is far less bad than silently skipping a warning)."""
     c = _get_contact(settings, contact_id)
     if c is None:
         return {"ok": False, "error": "contact not found"}
@@ -501,10 +508,10 @@ def send_first(settings, contact_id: str, *, commit: bool = False) -> dict:
                           "REFUSING to send. See cs/campaign_pack.py.")}
     if _pause_active(settings):
         return {"ok": False, "email": email, "blocked": "CS_PAUSE active"}
-    # dedup truth: never re-mail a contact already sent or already in the Sent archive
-    if c["state"] == "sent" or _sent_threads_to(settings, email, settings.dedup_days):
+    # idempotency: once the first notice has gone out the state is 'sent' — never re-send
+    if c["state"] == "sent":
         return {"ok": False, "email": email, "next": "reconcile",
-                "error": "already sent / in Sent archive — reconcile, do NOT re-send"}
+                "error": "contact already 'sent' — the first notice already went out"}
     row = {**(c.get("dossier") or {}), "email": email}
     try:
         subject, plain, html = pack.build(row)
