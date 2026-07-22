@@ -1,0 +1,4 @@
+mode = leaf
+index_file = CLAUDE.md
+inventory_ignore =
+# build = bash tests/run.sh
