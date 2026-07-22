@@ -404,6 +404,12 @@ def cmd_campaign_queue_draft(args) -> int:
     return 0
 
 
+def cmd_campaign_send_first(args) -> int:
+    settings = config.load()
+    _print_json(campaign_mod.send_first(settings, args.contact_id, commit=args.commit))
+    return 0
+
+
 def cmd_campaign_send_reminder(args) -> int:
     settings = config.load()
     _print_json(campaign_mod.send_reminder(settings, args.contact_id, commit=args.commit))
@@ -728,6 +734,14 @@ def main(argv=None) -> int:
     cmq.add_argument("contact_id")
     cmq.add_argument("--commit", action="store_true", help="apply (default: dry-run)")
     cmq.set_defaults(func=cmd_campaign_queue_draft)
+    csf = csub.add_parser(
+        "send-first",
+        help="fixed-template FIRST notice from the campaign's PACK (builders.build → HTML); "
+        "CS_TRIAGE_MODE=draft → Gmail Drafts, =send → cs-SMTP; dedup/pause/rate gated",
+    )
+    csf.add_argument("contact_id")
+    csf.add_argument("--commit", action="store_true", help="apply (default: dry-run)")
+    csf.set_defaults(func=cmd_campaign_send_first)
     csr = csub.add_parser(
         "send-reminder",
         help="fixed-template reminder from the campaign's PACK (campaigns/<name>/); "

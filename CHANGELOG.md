@@ -3,6 +3,27 @@
 Clones pin **tags only**. Every entry states which clones must re-collaudo
 and at which tier (design brief §6.6: static / +live read-only / full).
 
+## v0.3.3 — 2026-07-22
+
+### Added — `campaign send-first`: the first-notice sender the fixed-template lifecycle was missing
+- **Why:** the fixed-template lifecycle (`send-reminder` / `send-sms`) only ever
+  drove contacts **already in `sent`** — the *first* notice was sent by a prep
+  one-off (June's `migration_loop.py`), never by a kernel verb. `send-draft`
+  (composed-draft) can't stand in: it renders the body as **markdown**, which
+  mangles call-forwarding dial codes (`**004*<num>#` → bold). So a campaign
+  whose first mail needs real HTML had no sanctioned kernel path.
+- **What:** `cs campaign send-first <contact_id> [--commit]` →
+  `campaign.send_first`. Mirrors `send_reminder` but renders the PACK's
+  `builders.build()` (first-notice copy, hand-built HTML) and marks the contact
+  `sent`. `CS_TRIAGE_MODE=draft` → append the rendered mail (HTML) to the
+  operator's Gmail Drafts for review (idempotent, never sends); `=send` →
+  cs-SMTP send then mark `sent`. Gates: pack required (loud refusal), contact
+  NOT already `sent`, **Sent-archive dedup first** (never re-mail), `CS_PAUSE`,
+  `RATE_CAP` (send path).
+- **Re-collaudo:** `mrcall-cs` (batch-2 Centralix→Vonage campaign uses it) — full
+  (live send). Other clones: static (new additive verb, no behaviour change to
+  existing verbs).
+
 ## v0.3.2 — 2026-07-21
 
 ### Fixed — the hidden templates (`.claude/*`, `.env.example`, `.gitignore`) were broken stubs; re-derived from the reference clone

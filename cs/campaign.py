@@ -465,6 +465,86 @@ def send_reminder(settings, contact_id: str, *, commit: bool = False,
             "reminders": d["reminders"]}
 
 
+def send_first(settings, contact_id: str, *, commit: bool = False) -> dict:
+    """First-notice fixed-template send from the campaign's PACK
+    (builders.build → send_mail HTML). The counterpart to send_reminder for the
+    INITIAL contact: the fixed-template lifecycle otherwise assumes contacts are
+    already in 'sent' (the first notice sent out-of-band by a prep step). This
+    verb sends that first notice in the pack's own HTML — dial codes are `tel:`
+    links, which a markdown composed-draft (`send_draft`) would mangle — and
+    marks the contact 'sent'.
+
+    CS_TRIAGE_MODE=draft → push the rendered mail to the operator's Gmail Drafts
+    for review (idempotent, never sends); =send → cs-SMTP send then mark 'sent'.
+
+    Gates: pack required (loud refusal), contact NOT already 'sent', dedup
+    against the Sent archive FIRST (never re-mail), CS_PAUSE, RATE_CAP (send
+    path). The Sent-archive dedup is the double-send backstop (a crash after the
+    send is caught next run as 'already in Sent'), so send-then-mark is safe."""
+    c = _get_contact(settings, contact_id)
+    if c is None:
+        return {"ok": False, "error": "contact not found"}
+    email = c["email"]
+    camp_name = c.get("_campaign_name") or ""
+    if settings.excluded_campaign and camp_name == settings.excluded_campaign:
+        return {"ok": False, "email": email,
+                "error": f"campaign '{camp_name}' is excluded from the general operator"}
+    try:
+        pack = campaign_pack.find_pack(camp_name)
+    except campaign_pack.PackError as e:
+        return {"ok": False, "email": email, "error": f"pack error: {e}"}
+    if pack is None:
+        # The loud skip: a fixed-template action with NO pack never sends.
+        return {"ok": False, "email": email, "skipped": True,
+                "error": (f"NO CAMPAIGN PACK for '{camp_name}' — fixed-template sends need "
+                          "campaigns/<pack>/ (campaign.toml + templates or builders.py); "
+                          "REFUSING to send. See cs/campaign_pack.py.")}
+    if _pause_active(settings):
+        return {"ok": False, "email": email, "blocked": "CS_PAUSE active"}
+    # dedup truth: never re-mail a contact already sent or already in the Sent archive
+    if c["state"] == "sent" or _sent_threads_to(settings, email, settings.dedup_days):
+        return {"ok": False, "email": email, "next": "reconcile",
+                "error": "already sent / in Sent archive — reconcile, do NOT re-send"}
+    row = {**(c.get("dossier") or {}), "email": email}
+    try:
+        subject, plain, html = pack.build(row)
+    except campaign_pack.PackError as e:
+        return {"ok": False, "email": email, "error": f"pack render failed: {e}"}
+    mode = (settings.cs_triage_mode or "draft").lower()
+    dossier = dict(c.get("dossier") or {})
+
+    if mode != "send":  # draft mode — review surface in Gmail Drafts, idempotent
+        if dossier.get("gmail_draft_pushed"):
+            return {"ok": True, "email": email, "noop": "draft already in Gmail Drafts"}
+        if not commit:
+            return {"ok": True, "dry_run": True, "email": email, "mode": "draft",
+                    "subject": subject,
+                    "would": "append the first-notice mail (HTML) to the operator's Gmail Drafts"}
+        from . import gmail_drafts
+        folder = gmail_drafts.append_draft(settings, email, subject, plain, html=html,
+                                           cc=settings.email_address or None)
+        dossier["gmail_draft_pushed"] = True
+        dossier["gmail_draft_day"] = _time.local_date(_time.now_utc(), settings.timezone)
+        rpc.call_sync(settings, "campaign.update_contact",
+                      {"contact_id": contact_id, "dossier": dossier})
+        return {"ok": True, "email": email, "mode": "draft", "pushed_to": folder}
+
+    # send mode (CS_TRIAGE_MODE=send) — autonomous send, rate-capped
+    cap = _rate_capped(settings)
+    if cap:
+        return {"ok": False, "email": email, "blocked": cap}
+    if not commit:
+        return {"ok": True, "dry_run": True, "email": email, "mode": "send",
+                "subject": subject, "would": "cs-SMTP send the first notice + mark 'sent'"}
+    from . import send_mail
+    mid = send_mail.send(settings, email, subject, plain=plain, html=html,
+                         cc=settings.email_address or None)
+    rpc.call_sync(settings, "campaign.update_contact",
+                  {"contact_id": contact_id, "state": "sent", "message_id": mid})
+    _record_send(settings, contact_id=contact_id, email=email, subject=subject, message_id=mid)
+    return {"ok": True, "email": email, "mode": "send", "message_id": mid}
+
+
 def send_sms(settings, contact_id: str, *, commit: bool = False,
              now: Optional[datetime] = None) -> dict:
     """Fixed-template SMS nudge from the campaign PACK's sms.txt, via the
